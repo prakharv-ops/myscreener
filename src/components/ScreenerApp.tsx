@@ -6,8 +6,6 @@ import type { SavedScreen } from "@/lib/saved";
 import type { ScreenResult, StockRow } from "@/lib/screen";
 import { SnowflakeFilter } from "./SnowflakeFilter";
 
-const MARKETS = ["United States", "India", "United Kingdom", "Japan", "Germany", "Australia", "Canada"];
-const SECTORS = ["Technology", "Healthcare", "Financial Services", "Energy", "Industrials", "Consumer Cyclical", "Consumer Defensive", "Communication Services", "Utilities", "Basic Materials", "Real Estate"];
 const PAGE = 50;
 
 interface MetricFilter { key: string; min?: number; max?: number }
@@ -57,6 +55,13 @@ export function ScreenerApp() {
   const [sort, setSort] = useState({ key: "market_cap", dir: "desc" as "asc" | "desc" });
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ScreenResult | null>(null);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [facets, setFacets] = useState<{ markets: string[]; industries: string[] }>({ markets: [], industries: [] });
+  useEffect(() => {
+    fetch("/api/facets").then((r) => r.json()).then((j) => {
+      if (j.markets) setFacets({ markets: j.markets.map((x: { name: string }) => x.name), industries: j.industries.map((x: { name: string }) => x.name) });
+    }).catch(() => {});
+  }, []);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState<SavedScreen[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -128,6 +133,7 @@ export function ScreenerApp() {
     metrics: metrics.filter((m) => m.min !== undefined || m.max !== undefined),
   };
   const specKey = JSON.stringify(spec);
+  const loading = loadedKey !== specKey;
 
   useEffect(() => {
     const ctl = new AbortController();
@@ -138,6 +144,7 @@ export function ScreenerApp() {
         if (!r.ok) throw new Error(JSON.stringify(j.error));
         setRes(j);
         setErr(null);
+        setLoadedKey(specKey);
       } catch (e) {
         if ((e as Error).name !== "AbortError") setErr((e as Error).message);
       }
@@ -206,8 +213,8 @@ export function ScreenerApp() {
 
         <div className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <Multi label="Markets" options={MARKETS} value={markets} onChange={reset(setMarkets)} />
-            <Multi label="Industries" options={SECTORS} value={industries} onChange={reset(setIndustries)} />
+            <Multi label="Markets" options={facets.markets} value={markets} onChange={reset(setMarkets)} />
+            <Multi label="Industries" options={facets.industries} value={industries} onChange={reset(setIndustries)} />
           </div>
           <input
             value={keywords}
@@ -241,7 +248,7 @@ export function ScreenerApp() {
       </section>
 
       <div className="flex items-center justify-between text-sm">
-        <span>{res ? `${res.count.toLocaleString()} results` : "Loading…"}</span>
+        <span className={loading ? "opacity-50" : ""}>{res ? `${res.count.toLocaleString()} results` : "Loading…"}{loading && res ? " · updating…" : ""}</span>
         {err && <span className="text-red-400">{err}</span>}
         <div className="flex gap-2">
           <button disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded border border-white/15 px-3 py-1 disabled:opacity-30">Prev</button>

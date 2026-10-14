@@ -11,8 +11,10 @@ if (!process.env.DRY_RUN && (!url || !key)) throw new Error("Set SUPABASE_URL an
 const sb = createClient(url ?? "http://localhost", key ?? "x", { auth: { persistSession: false } });
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
-const symbols = readFileSync(new URL("./tickers.txt", import.meta.url), "utf8")
-  .split("\n").map((s) => s.trim()).filter((s) => s && !s.startsWith("#"));
+const cli = process.argv.slice(2); // optional: npm run ingest -- AAPL MSFT
+const symbols = cli.length ? cli : readFileSync(new URL("./tickers.txt", import.meta.url), "utf8")
+  .split("\n").map((s) => s.trim()).filter((s) => s && !s.startsWith("#"))
+  .filter((s, i, a) => a.indexOf(s) === i); // dedupe
 
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const pctOf = (v: unknown) => (num(v) == null ? null : +((v as number) * 100).toFixed(2));
@@ -104,18 +106,41 @@ async function one(symbol: string) {
   return { ...row, ...scoreAll(row as never) };
 }
 
-const rows = [];
-if (process.env.DRY_RUN) console.log("DRY_RUN: not writing to Supabase");
-for (const sym of symbols) {
-  try {
-    rows.push(await one(sym));
-    console.log("ok  ", sym);
-    if (process.env.DRY_RUN) { const { description: _d, ...r } = rows.at(-1)!; console.log(JSON.stringify(r)); }
-  } catch (e) {
-    console.warn("fail", sym, (e as Error).message);
+const DRY = Boolean(process.env.DRY_RUN);
+const CONCURRENCY = 4;
+const BATCH = 50;
+if (DRY) console.log("DRY_RUN: not writing to Supabase");
+
+type Row = Awaited<ReturnType<typeof one>>;
+let pending: Row[] = [];
+let saved = 0, failed = 0, next = 0;
+
+async function flush() {
+  if (!pending.length) return;
+  const batch = pending;
+  pending = [];
+  if (DRY) return;
+  const { error } = await sb.from("stocks").upsert(batch, { onConflict: "symbol" });
+  if (error) throw error;
+  saved += batch.length;
+}
+
+async function worker() {
+  while (next < symbols.length) {
+    const sym = symbols[next++];
+    try {
+      const row = await one(sym);
+      pending.push(row);
+      console.log(`ok   ${sym}  (${next}/${symbols.length})`);
+      if (DRY) { const { description: _d, ...r } = row; console.log(JSON.stringify(r)); }
+      if (pending.length >= BATCH) await flush();
+    } catch (e) {
+      failed++;
+      console.warn(`fail ${sym}: ${(e as Error).message.slice(0, 120)}`);
+    }
   }
 }
-if (process.env.DRY_RUN) process.exit(0);
-const { error } = await sb.from("stocks").upsert(rows, { onConflict: "symbol" });
-if (error) throw error;
-console.log(`upserted ${rows.length}/${symbols.length}`);
+
+await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+await flush();
+console.log(`upserted ${saved}, failed ${failed}, of ${symbols.length}`);
