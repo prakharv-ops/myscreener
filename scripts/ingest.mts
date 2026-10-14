@@ -97,6 +97,8 @@ async function one(symbol: string) {
     earnings_growth_past_5y: past5,
     analyst_target: num(fd?.targetMeanPrice),
     analyst_count: num(fd?.numberOfAnalystOpinions),
+    profit_margin: pctOf(fd?.profitMargins),
+    analyst_rating: num(fd?.recommendationMean),
     ret_7d: rets.ret_7d,
     ret_1y: pctOf(ks?.["52WeekChange"]),
     ret_5y: rets.ret_5y,

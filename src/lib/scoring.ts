@@ -3,69 +3,73 @@ import type { StockRow } from "./screen";
 type M = Partial<StockRow>;
 const n = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
 
-// Each axis: count of passed checks, scaled to 0–6. Transparent rules — tune freely.
-const scale = (passed: number, total: number) => Math.round((passed / total) * 6);
+/** Map v linearly so `bad` -> 0 and `good` -> 1 (works for both directions), clamped. */
+const lin = (v: number | null | undefined, bad: number, good: number) =>
+  n(v) ? Math.max(0, Math.min(1, (v - bad) / (good - bad))) : null;
 
-export function scoreValue(m: M) {
-  const checks = [
-    n(m.pe) && m.pe > 0 && m.pe < 20,
-    n(m.pb) && m.pb > 0 && m.pb < 3,
-    n(m.peg) && m.peg > 0 && m.peg < 1.5,
-    n(m.price) && n(m.analyst_target) && m.price < m.analyst_target * 0.85,
-    n(m.eps) && m.eps > 0,
-    n(m.pe) && m.pe > 0 && m.pe < 12,
-  ];
-  return scale(checks.filter(Boolean).length, checks.length);
-}
+/** Average of the sub-scores that exist (0..1). Missing data is ignored rather than punished; no data at all -> 0. */
+const blend = (parts: (number | null)[]) => {
+  const have = parts.filter((p): p is number => p !== null);
+  return have.length ? have.reduce((a, b) => a + b, 0) / have.length : 0;
+};
+const to10 = (x: number) => Math.round(x * 100) / 10; // 0..10, one decimal
 
-export function scoreFuture(m: M) {
-  const checks = [
-    n(m.earnings_growth_est_1y) && m.earnings_growth_est_1y > 5,
-    n(m.earnings_growth_est_1y) && m.earnings_growth_est_1y > 15,
-    n(m.earnings_growth_est_1y) && m.earnings_growth_est_1y > 25,
-    n(m.roe) && m.roe > 15,
-    n(m.analyst_count) && m.analyst_count >= 5,
-    n(m.price) && n(m.analyst_target) && m.analyst_target > m.price * 1.1,
-  ];
-  return scale(checks.filter(Boolean).length, checks.length);
-}
+const upside = (m: M) => (n(m.price) && n(m.analyst_target) && m.price > 0 ? (m.analyst_target / m.price - 1) * 100 : null);
 
-export function scorePast(m: M) {
-  const checks = [
-    n(m.earnings_growth_past_1y) && m.earnings_growth_past_1y > 0,
-    n(m.earnings_growth_past_1y) && m.earnings_growth_past_1y > 15,
-    n(m.earnings_growth_past_5y) && m.earnings_growth_past_5y > 0,
-    n(m.earnings_growth_past_5y) && m.earnings_growth_past_5y > 10,
-    n(m.roe) && m.roe > 10,
-    n(m.roa) && m.roa > 5,
-  ];
-  return scale(checks.filter(Boolean).length, checks.length);
-}
+// Every axis is a smooth 0–10 blend, so stocks spread out instead of clumping on a few integer levels.
 
-export function scoreHealth(m: M) {
-  const checks = [
-    n(m.debt_to_equity) && m.debt_to_equity < 100,
-    n(m.debt_to_equity) && m.debt_to_equity < 50,
-    n(m.roa) && m.roa > 3,
-    n(m.eps) && m.eps > 0,
-    n(m.beta) && m.beta < 1.3,
-    n(m.market_cap) && m.market_cap > 2e9,
-  ];
-  return scale(checks.filter(Boolean).length, checks.length);
-}
+export const scoreValue = (m: M) =>
+  to10(blend([
+    n(m.pe) && m.pe > 0 ? lin(m.pe, 45, 8) : n(m.pe) ? 0 : null, // negative PE = loss-making
+    n(m.pb) && m.pb > 0 ? lin(m.pb, 8, 1) : null,
+    n(m.peg) && m.peg > 0 ? lin(m.peg, 3, 0.8) : null,
+    lin(upside(m), -10, 40),
+  ]));
 
-export function scoreDividends(m: M) {
+export const scoreFuture = (m: M) =>
+  to10(blend([
+    lin(m.earnings_growth_est_1y, -5, 30),
+    lin(m.earnings_growth_est_1y, 5, 20), // extra weight for solid growth
+    lin(upside(m), 0, 30),
+    lin(m.roe, 5, 30),
+  ]));
+
+export const scorePast = (m: M) =>
+  to10(blend([
+    lin(m.earnings_growth_past_1y, -10, 40),
+    lin(m.earnings_growth_past_5y, -5, 25),
+    lin(m.roe, 5, 25),
+    lin(m.roa, 1, 12),
+  ]));
+
+export const scoreHealth = (m: M) =>
+  to10(blend([
+    lin(m.debt_to_equity, 200, 20),
+    lin(m.roa, 0, 10),
+    n(m.market_cap) && m.market_cap > 0 ? lin(Math.log10(m.market_cap), 8.7, 11.3) : null, // ~$0.5b -> $200b
+    n(m.eps) ? (m.eps > 0 ? 1 : 0) : null,
+    lin(m.beta, 2, 0.6),
+  ]));
+
+export const scoreDividends = (m: M) => {
   const y = m.div_yield;
-  const checks = [
-    n(y) && y > 0,
-    n(y) && y > 1.5,
-    n(y) && y > 3,
-    n(y) && y > 5,
-    n(y) && n(m.eps) && m.eps > 0,
-    n(y) && y < 12, // very high yields are usually a trap
-  ];
-  return scale(checks.filter(Boolean).length, checks.length);
-}
+  if (!n(y) || y <= 0) return 0;
+  const trap = y > 10 ? 0.4 : 1; // implausibly high yields are usually a warning sign
+  return to10(blend([lin(y, 0, 4.5), n(m.eps) ? (m.eps > 0 ? 1 : 0) : null, lin(m.debt_to_equity, 200, 20)]) * trap);
+};
+
+export const scoreMomentum = (m: M) =>
+  to10(blend([lin(m.ret_7d, -6, 6), lin(m.ret_1y, -25, 60), lin(m.ret_5y, -20, 250)]));
+
+export const scoreQuality = (m: M) =>
+  to10(blend([lin(m.roe, 4, 30), lin(m.roa, 1, 12), lin(m.profit_margin, 2, 30)]));
+
+export const scoreSentiment = (m: M) =>
+  to10(blend([
+    lin(upside(m), -5, 35),
+    lin(m.analyst_rating, 3.8, 1.6), // Yahoo: 1 = strong buy ... 5 = sell
+    n(m.analyst_count) ? lin(Math.log10(1 + m.analyst_count), 0.3, 1.5) : null, // wider coverage = more trust
+  ]));
 
 export function scoreAll(m: M) {
   const s = {
@@ -74,6 +78,9 @@ export function scoreAll(m: M) {
     score_past: scorePast(m),
     score_health: scoreHealth(m),
     score_dividends: scoreDividends(m),
+    score_momentum: scoreMomentum(m),
+    score_quality: scoreQuality(m),
+    score_sentiment: scoreSentiment(m),
   };
-  return { ...s, score_total: Object.values(s).reduce((a, b) => a + b, 0) };
+  return { ...s, score_total: Math.round(Object.values(s).reduce((a, b) => a + b, 0) * 10) / 10 };
 }

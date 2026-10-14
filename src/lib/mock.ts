@@ -1,3 +1,4 @@
+import { scoreAll } from "./scoring";
 import type { StockRow } from "./screen";
 
 // Deterministic fake universe so the UI works before Supabase is configured.
@@ -21,13 +22,11 @@ const SECTORS = ["Technology", "Healthcare", "Financial Services", "Energy", "In
 export function mockUniverse(n = 400): StockRow[] {
   const r = rng(42);
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
-  const sc = () => Math.floor(r() * 7);
   return Array.from({ length: n }, (_, i) => {
     const [country, exchange, currency] = pick(MARKETS);
     const sector = pick(SECTORS);
     const sym = `${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}${String.fromCharCode(65 + ((i * 13) % 26))}`;
-    const s = [sc(), sc(), sc(), sc(), sc()];
-    return {
+    const row = {
       symbol: `${sym}${i}`,
       name: `${sector.split(" ")[0]} Corp ${i}`,
       exchange, country, sector, industry: sector, currency,
@@ -47,13 +46,14 @@ export function mockUniverse(n = 400): StockRow[] {
       earnings_growth_est_1y: +(r() * 40 - 10).toFixed(1),
       analyst_target: null,
       analyst_count: Math.floor(r() * 30),
+      profit_margin: +(r() * 35 - 5).toFixed(1),
+      analyst_rating: +(1.5 + r() * 3).toFixed(1),
       ret_7d: +(r() * 10 - 5).toFixed(1),
       ret_1y: +(r() * 90 - 30).toFixed(1),
       ret_5y: +(r() * 300 - 50).toFixed(1),
-      score_value: s[0], score_future: s[1], score_past: s[2], score_health: s[3], score_dividends: s[4],
-      score_total: s.reduce((a, b) => a + b, 0),
       description: `${sector} company listed in ${country}`,
       is_primary_listing: true,
     };
+    return { ...row, ...scoreAll(row as StockRow) } as StockRow;
   });
 }

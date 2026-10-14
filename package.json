@@ -9,7 +9,8 @@
     "lint": "eslint",
     "ingest": "tsx --env-file=.env.local scripts/ingest.mts",
     "alerts": "tsx --env-file-if-exists=.env.local scripts/run-alerts.mts",
-    "refresh": "npm run ingest && npm run alerts"
+    "refresh": "npm run ingest && npm run alerts",
+    "rescore": "tsx --env-file-if-exists=.env.local scripts/rescore.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",

@@ -6,7 +6,7 @@ const metricKeys = METRICS.map((m) => m.key);
 export const ScreenSpec = z.object({
   markets: z.array(z.string()).default([]), // ISO country names/codes stored in `country`
   industries: z.array(z.string()).default([]), // sectors
-  snowflake: z.record(z.string(), z.number().min(0).max(6)).default({}), // axis -> min score
+  snowflake: z.record(z.string(), z.number().min(0).max(10)).default({}), // axis -> min score
   metrics: z
     .array(
       z.object({
@@ -55,6 +55,8 @@ export interface StockRow {
   earnings_growth_est_1y: number | null;
   analyst_target: number | null;
   analyst_count: number | null;
+  profit_margin: number | null;
+  analyst_rating: number | null;
   ret_7d: number | null;
   ret_1y: number | null;
   ret_5y: number | null;
@@ -63,6 +65,9 @@ export interface StockRow {
   score_past: number | null;
   score_health: number | null;
   score_dividends: number | null;
+  score_momentum: number | null;
+  score_quality: number | null;
+  score_sentiment: number | null;
   score_total: number | null;
   description?: string | null;
   is_primary_listing?: boolean | null;

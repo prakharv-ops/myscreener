@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { METRICS, SNOWFLAKE_AXES, metricByKey } from "@/lib/metrics";
+import { MAX_TOTAL, METRICS, SNOWFLAKE_AXES, metricByKey } from "@/lib/metrics";
+import { useLive } from "@/lib/use-live";
 import type { ScreenAlert } from "@/lib/alerts";
 import type { SavedScreen } from "@/lib/saved";
 import type { ScreenResult, StockRow } from "@/lib/screen";
+import { MiniSnowflake } from "./MiniSnowflake";
 import { SnowflakeFilter } from "./SnowflakeFilter";
 
 const PAGE = 50;
@@ -63,6 +65,7 @@ export function ScreenerApp() {
     }).catch(() => {});
   }, []);
   const [err, setErr] = useState<string | null>(null);
+  const { prices: live, mode: liveMode } = useLive((res?.rows ?? []).map((r) => r.symbol));
   const [saved, setSaved] = useState<SavedScreen[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [alerts, setAlerts] = useState<ScreenAlert[]>([]);
@@ -199,15 +202,18 @@ export function ScreenerApp() {
             )}
           </div>
         </div>
+        <span className="text-xs opacity-70" title="Prices stream in for the stocks on this page">
+          {liveMode === "connecting" ? "○ connecting…" : liveMode === "offline" ? "○ live feed offline" : `● live · ${liveMode.startsWith("finnhub") ? "Finnhub WebSocket (US) + Yahoo" : "Yahoo polling"}`}
+        </span>
         {res?.source === "mock" && <span className="rounded bg-amber-400/20 px-2 py-1 text-xs text-amber-300">Mock data — configure Supabase to use real data</span>}
       </header>
 
-      <section className="grid gap-4 md:grid-cols-[300px_1fr]">
+      <section className="grid gap-4 md:grid-cols-[460px_1fr]">
         <div className="rounded-xl border border-white/10 p-4">
           <div className="mb-2 text-xs font-semibold uppercase opacity-60">Snowflake filter (min score)</div>
           <SnowflakeFilter value={snowflake} onChange={reset(setSnowflake)} />
           <div className="mt-2 text-xs opacity-60">
-            {SNOWFLAKE_AXES.map((a) => `${a.label} ≥ ${snowflake[a.key] ?? 0}`).join(" · ")}
+            {SNOWFLAKE_AXES.filter((a) => (snowflake[a.key] ?? 0) > 0).map((a) => `${a.label} ≥ ${snowflake[a.key]}`).join(" · ") || "Click or drag an axis to set a minimum score (0–10)"}
           </div>
         </div>
 
@@ -275,17 +281,27 @@ export function ScreenerApp() {
             {res?.rows.map((r: StockRow) => (
               <tr key={r.symbol} className="border-b border-white/5 hover:bg-white/5">
                 <td className="px-3 py-2">
-                  <div className="font-medium">{r.name}</div>
-                  <div className="text-xs opacity-50">{r.symbol} · {r.exchange} · {r.country}</div>
+                  <div className="flex items-center gap-3">
+                    <MiniSnowflake row={r} />
+                    <div>
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-xs opacity-50">{r.symbol} · {r.exchange} · {r.country}</div>
+                    </div>
+                  </div>
                 </td>
-                <td className="px-3 py-2 text-right">{r.currency} {fmtNum(r.price, 2)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {r.currency}{" "}
+                  <span key={live[r.symbol]?.at} className={`rounded px-1 ${live[r.symbol]?.dir === 1 ? "flash-up" : live[r.symbol]?.dir === -1 ? "flash-down" : ""}`}>
+                    {fmtNum(live[r.symbol]?.price ?? r.price, 2)}
+                  </span>
+                </td>
                 <td className={`px-3 py-2 text-right ${(r.ret_7d ?? 0) < 0 ? "text-red-400" : "text-emerald-400"}`}>{pct(r.ret_7d)}</td>
                 <td className={`px-3 py-2 text-right ${(r.ret_1y ?? 0) < 0 ? "text-red-400" : "text-emerald-400"}`}>{pct(r.ret_1y)}</td>
                 <td className="px-3 py-2 text-right">{fmtCap(r.market_cap)}</td>
                 <td className="px-3 py-2 text-right">{fmtNum(r.pe)}</td>
                 <td className="px-3 py-2 text-right">{pct(r.earnings_growth_est_1y)}</td>
                 <td className="px-3 py-2 text-right">{pct(r.div_yield)}</td>
-                <td className="px-3 py-2 text-right">{r.score_total ?? "–"}/30</td>
+                <td className="px-3 py-2 text-right">{r.score_total ?? "–"}/{MAX_TOTAL}</td>
               </tr>
             ))}
           </tbody>

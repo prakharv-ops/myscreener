@@ -22,6 +22,8 @@ export const METRICS: MetricDef[] = [
   { key: "beta", label: "Beta", fmt: "ratio" },
   { key: "div_yield", label: "Dividend Yield (%)", fmt: "pct" },
   { key: "analyst_count", label: "Analyst Coverage", fmt: "num" },
+  { key: "profit_margin", label: "Profit Margin (%)", fmt: "pct" },
+  { key: "analyst_rating", label: "Analyst Rating (1 buy – 5 sell)", fmt: "ratio" },
   { key: "ret_1y", label: "1 Year Return (%)", fmt: "pct" },
   { key: "ret_5y", label: "5 Year Return (%)", fmt: "pct" },
 ];
@@ -32,7 +34,13 @@ export const SNOWFLAKE_AXES = [
   { key: "past", col: "score_past", label: "Past" },
   { key: "health", col: "score_health", label: "Health" },
   { key: "dividends", col: "score_dividends", label: "Dividends" },
+  { key: "momentum", col: "score_momentum", label: "Momentum" },
+  { key: "quality", col: "score_quality", label: "Quality" },
+  { key: "sentiment", col: "score_sentiment", label: "Sentiment" },
 ] as const;
+
+export const MAX_AXIS = 10;
+export const MAX_TOTAL = SNOWFLAKE_AXES.length * MAX_AXIS;
 
 export type AxisKey = (typeof SNOWFLAKE_AXES)[number]["key"];
 
