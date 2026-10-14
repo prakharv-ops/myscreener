@@ -1,0 +1,22 @@
+# One Yahoo Finance symbol per line. Suffix = exchange (.NS India, .L London, .T Tokyo, .DE Germany, .AX Australia, .TO Toronto)
+AAPL
+MSFT
+NVDA
+GOOGL
+JPM
+XOM
+RELIANCE.NS
+TCS.NS
+HDFCBANK.NS
+INFY.NS
+SHEL.L
+AZN.L
+HSBA.L
+7203.T
+6758.T
+SAP.DE
+SIE.DE
+BHP.AX
+CBA.AX
+SHOP.TO
+RY.TO

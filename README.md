@@ -1,36 +1,31 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MyScreener
 
-## Getting Started
+Personal global stock screener (Next.js + Supabase), modelled on Simply Wall St's screener.
 
-First, run the development server:
-
+## Run
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev        # works immediately on mock data
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Use real data
+1. Create a Supabase project, run `supabase/migrations/0001_init.sql` in the SQL editor.
+2. Copy `.env.example` to `.env.local` and fill in the URL + service-role key (server-only).
+3. Also run `supabase/migrations/0002_alerts.sql`.
+4. Edit `scripts/tickers.txt` (Yahoo symbols), then `npm run ingest`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Alerts
+Email: set `RESEND_API_KEY`, `ALERT_EMAIL_TO` (and `ALERT_EMAIL_FROM` for your verified domain) in `.env.local`. Each run sends one digest covering stocks that newly match; if sending fails the alerts still appear in the bell.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Select a saved screen and turn **Alerts on** (first run only records a baseline). `npm run alerts` (or `POST /api/alerts/run`, or the bell's **Check now**) re-runs every alert-enabled screen and records stocks that entered or left it; the bell shows unread ones. `npm run refresh` = ingest + alerts, suitable for a daily cron. For a hosted deploy, set `CRON_SECRET` and call `/api/alerts/run` with `Authorization: Bearer <secret>` (the in-app Check now button won't work once it's set).
 
-## Learn More
+## Layout
+- `src/lib/metrics.ts` – metric registry (add a filter = add a column + one entry)
+- `src/lib/scoring.ts` – Snowflake scoring rules (0–6 per axis)
+- `src/lib/run-screen.ts` – filter spec -> Supabase query (mock fallback)
+- `src/components/` – Snowflake radar filter + screener UI
+- `src/lib/saved.ts` + `src/app/api/screens` – saved screens (Supabase `saved_screens`, or `.data/` JSON file in mock mode)
+- `src/lib/alerts.ts` + `src/app/api/alerts` – diff saved-screen matches between runs
+- `scripts/ingest.mts` – Yahoo Finance -> Supabase upsert + scoring
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## TODO
+Push alerts; retry failed emails; full ticker universe; fix P/B for minor-unit currencies instead of nulling it.
