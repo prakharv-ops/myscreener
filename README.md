@@ -10,8 +10,14 @@ npm run dev        # works immediately on mock data
 ## Use real data
 1. Create a Supabase project, run `supabase/migrations/0001_init.sql` in the SQL editor.
 2. Copy `.env.example` to `.env.local` and fill in the URL + service-role key (server-only).
-3. Also run `0002_alerts.sql` and `0003_snowflake_v2.sql` from `supabase/migrations/` (or `supabase/setup.sql` for all three on a fresh project).
+3. Also run `0002_alerts.sql`, `0003_snowflake_v2.sql` and `0004_universe.sql` from `supabase/migrations/` (or `supabase/setup.sql` for all three on a fresh project).
 4. Edit `scripts/tickers.txt` (Yahoo symbols), then `npm run ingest`.
+
+## Full US universe
+`npm run universe` loads every US common stock/ADR (~5,900; Nasdaq, NYSE, NYSE American) from Nasdaq Trader's free official symbol files. `npm run quotes` refreshes price/market cap/PE/etc. for all rows in a few seconds (Yahoo batch quotes). `npm run enrich` (time-boxed, default 30 min; `-- --minutes 60`) adds full details + Snowflake scores, biggest companies first, so the whole universe fills in over a few nights; stale rows are then refreshed oldest-first. The screener hides not-yet-analysed stocks unless you untick "Fully analysed stocks only". `npm run refresh` = universe + quotes + enrich + rescore + alerts (what the daily job runs).
+
+## Webhooks
+Alert digests can be POSTed to Slack / Discord incoming webhooks or any HTTPS endpoint (`ALERT_WEBHOOK_URLS`, optional HMAC signing with `ALERT_WEBHOOK_SECRET`; see `.env.example`). To trigger work *into* the app from elsewhere, call `POST /api/alerts/run` with `Authorization: Bearer $CRON_SECRET`. (No free market-data API offers webhooks; Benzinga does, via sales.)
 
 ## Snowflake
 8 axes (Value, Future, Past, Health, Dividends, Momentum, Quality, Sentiment), each a smooth 0–10 blend of several metrics (`src/lib/scoring.ts`). Click/drag an axis to set a minimum. After editing the scoring rules run `npm run rescore` (no Yahoo calls).

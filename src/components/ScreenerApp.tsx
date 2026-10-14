@@ -54,6 +54,8 @@ export function ScreenerApp() {
   const [snowflake, setSnowflake] = useState<Record<string, number>>({});
   const [metrics, setMetrics] = useState<MetricFilter[]>([]);
   const [keywords, setKeywords] = useState("");
+  const [detailedOnly, setDetailedOnly] = useState(true);
+  const [coverage, setCoverage] = useState<{ total: number; analysed: number } | null>(null);
   const [sort, setSort] = useState({ key: "market_cap", dir: "desc" as "asc" | "desc" });
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ScreenResult | null>(null);
@@ -61,6 +63,7 @@ export function ScreenerApp() {
   const [facets, setFacets] = useState<{ markets: string[]; industries: string[] }>({ markets: [], industries: [] });
   useEffect(() => {
     fetch("/api/facets").then((r) => r.json()).then((j) => {
+      if (j.total) setCoverage({ total: j.total, analysed: j.analysed });
       if (j.markets) setFacets({ markets: j.markets.map((x: { name: string }) => x.name), industries: j.industries.map((x: { name: string }) => x.name) });
     }).catch(() => {});
   }, []);
@@ -108,7 +111,7 @@ export function ScreenerApp() {
     const s = saved.find((x) => x.id === id)?.spec;
     if (!s) return;
     setMarkets(s.markets); setIndustries(s.industries); setSnowflake(s.snowflake);
-    setMetrics(s.metrics); setKeywords(s.keywords); setSort(s.sort); setPage(0);
+    setMetrics(s.metrics); setKeywords(s.keywords); setDetailedOnly(s.detailedOnly ?? true); setSort(s.sort); setPage(0);
   };
   const saveCurrent = async () => {
     const name = window.prompt("Name this screen");
@@ -128,11 +131,11 @@ export function ScreenerApp() {
   };
   const clearAll = () => {
     setActiveId(""); setMarkets([]); setIndustries([]); setSnowflake({}); setMetrics([]);
-    setKeywords(""); setSort({ key: "market_cap", dir: "desc" }); setPage(0);
+    setKeywords(""); setDetailedOnly(true); setSort({ key: "market_cap", dir: "desc" }); setPage(0);
   };
 
   const spec = {
-    markets, industries, snowflake, keywords, sort, page, pageSize: PAGE,
+    markets, industries, snowflake, keywords, detailedOnly, sort, page, pageSize: PAGE,
     metrics: metrics.filter((m) => m.min !== undefined || m.max !== undefined),
   };
   const specKey = JSON.stringify(spec);
@@ -252,6 +255,11 @@ export function ScreenerApp() {
           </div>
         </div>
       </section>
+
+      <label className="flex items-center gap-2 text-xs opacity-80" title="Stocks are loaded with market data first; full details (sector, scores, growth) fill in nightly">
+        <input type="checkbox" checked={detailedOnly} onChange={(e) => { setPage(0); setDetailedOnly(e.target.checked); }} />
+        Fully analysed stocks only{coverage ? ` (${coverage.analysed.toLocaleString()} of ${coverage.total.toLocaleString()} loaded)` : ""}
+      </label>
 
       <div className="flex items-center justify-between text-sm">
         <span className={loading ? "opacity-50" : ""}>{res ? `${res.count.toLocaleString()} results` : "Loading…"}{loading && res ? " · updating…" : ""}</span>

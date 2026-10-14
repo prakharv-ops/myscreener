@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { buildDigest, type ScreenDigest } from "./alert-email";
 import { emailConfigured, sendEmail, type EmailResult } from "./email";
+import { sendWebhooks, type WebhookResult } from "./webhooks";
 import { allMatches } from "./run-screen";
 import { listScreens, readJson, updateScreen, writeJson } from "./saved";
 
@@ -63,7 +64,7 @@ export interface RunSummary {
 }
 
 /** Re-run every alert-enabled saved screen and record who entered / left it. */
-export async function runAlerts(): Promise<{ summaries: RunSummary[]; email: EmailResult | null }> {
+export async function runAlerts(): Promise<{ summaries: RunSummary[]; email: EmailResult | null; webhooks: WebhookResult[] }> {
   const summaries: RunSummary[] = [];
   const digests: ScreenDigest[] = [];
   for (const s of (await listScreens()).filter((x) => x.alerts_enabled)) {
@@ -94,7 +95,8 @@ export async function runAlerts(): Promise<{ summaries: RunSummary[]; email: Ema
     const { subject, html, text } = buildDigest(digests);
     email = await sendEmail(subject, html, text);
   }
-  return { summaries, email };
+  const webhooks = digests.length ? await sendWebhooks(digests) : [];
+  return { summaries, email, webhooks };
 }
 
 export { emailConfigured };

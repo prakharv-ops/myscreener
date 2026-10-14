@@ -18,6 +18,7 @@ export const ScreenSpec = z.object({
     .default([]),
   keywords: z.string().max(200).default(""),
   includeSecondary: z.boolean().default(false),
+  detailedOnly: z.boolean().default(true), // hide stocks that only have market data so far (no sector/scores yet)
   sort: z
     .object({
       key: z.string().refine((k) => SORTABLE.has(k)),
@@ -70,6 +71,7 @@ export interface StockRow {
   score_sentiment: number | null;
   score_total: number | null;
   description?: string | null;
+  has_details?: boolean;
   is_primary_listing?: boolean | null;
 }
 

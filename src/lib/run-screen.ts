@@ -15,6 +15,7 @@ async function runSupabase(spec: ScreenSpec): Promise<ScreenResult> {
   if (spec.markets.length) q = q.in("country", spec.markets);
   if (spec.industries.length) q = q.in("sector", spec.industries);
   if (!spec.includeSecondary) q = q.eq("is_primary_listing", true);
+  if (spec.detailedOnly) q = q.eq("has_details", true);
   for (const [axis, min] of Object.entries(spec.snowflake)) {
     const col = axisCol(axis);
     if (col && min > 0) q = q.gte(col, min);
