@@ -3,7 +3,7 @@
 // biggest companies first, then refreshes the stalest ones. Time-boxed so it can run nightly;
 // the whole US universe fills in over a few nights. Symbols that keep failing are skipped after 3 tries.
 import { createClient } from "@supabase/supabase-js";
-import { fetchDetail } from "./lib/yahoo-detail.mjs";
+import { fetchDetail, withRetry } from "./lib/yahoo-detail.mjs";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -19,16 +19,25 @@ const LIMIT = arg("limit", 100000);
 const STALE_DAYS = Number(process.env.ENRICH_STALE_DAYS ?? 3);
 const deadline = Date.now() + MINUTES * 60_000;
 
+// PostgREST returns at most 1000 rows per request, so page through
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ids(build: () => { range: (a: number, b: number) => PromiseLike<{ data: any[] | null; error: Error | null }> }) {
+  const out: string[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await build().range(from, from + 999);
+    if (error) throw error;
+    out.push(...(data ?? []).map((r: { symbol: string }) => r.symbol));
+    if ((data?.length ?? 0) < 1000) return out;
+  }
+}
 // queue: never-enriched first (largest market cap first), then stale ones (oldest first)
-const fresh = await sb.from("stocks").select("symbol").eq("has_details", false).lt("detail_failures", 3)
-  .order("market_cap", { ascending: false, nullsFirst: false }).limit(20000);
-if (fresh.error) throw fresh.error;
-const stale = await sb.from("stocks").select("symbol").eq("has_details", true)
+const freshIds = await ids(() => sb.from("stocks").select("symbol").eq("has_details", false).lt("detail_failures", 3)
+  .order("market_cap", { ascending: false, nullsFirst: false }).order("symbol"));
+const staleIds = await ids(() => sb.from("stocks").select("symbol").eq("has_details", true)
   .lt("details_updated_at", new Date(Date.now() - STALE_DAYS * 864e5).toISOString())
-  .order("details_updated_at", { ascending: true }).limit(20000);
-if (stale.error) throw stale.error;
-const queue = [...fresh.data, ...stale.data].map((r) => r.symbol).slice(0, LIMIT);
-console.log(`queue: ${fresh.data.length} new + ${stale.data.length} stale; budget ${MINUTES} min`);
+  .order("details_updated_at", { ascending: true }).order("symbol"));
+const queue = [...freshIds, ...staleIds].slice(0, LIMIT);
+console.log(`queue: ${freshIds.length} new + ${staleIds.length} stale; budget ${MINUTES} min`);
 
 let ok = 0, failed = 0, i = 0;
 let batch: Record<string, unknown>[] = [];
@@ -44,7 +53,7 @@ async function worker() {
   while (i < queue.length && Date.now() < deadline) {
     const sym = queue[i++];
     try {
-      batch.push(await fetchDetail(sym));
+      batch.push(await withRetry(() => fetchDetail(sym)));
       ok++;
       if (batch.length >= 25) await flush();
     } catch (e) {

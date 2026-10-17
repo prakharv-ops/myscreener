@@ -1,20 +1,33 @@
 import { createClient } from "@supabase/supabase-js";
 import { mockUniverse } from "@/lib/mock";
 
-// Distinct countries and sectors currently in the database (for the filter chips).
+interface Row { country: string | null; sector: string | null }
+
+// Distinct countries and sectors among fully analysed stocks (for the filter chips) + coverage counts.
 export async function GET() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  let rows: { country: string | null; sector: string | null; has_details?: boolean }[];
+  let rows: Row[] = [];
+  let total: number;
+
   if (url && key) {
-    const { data, error } = await createClient(url, key, { auth: { persistSession: false } }).from("stocks").select("country,sector,has_details").limit(20000);
-    if (error) return Response.json({ error: error.message }, { status: 500 });
-    rows = data;
+    const sb = createClient(url, key, { auth: { persistSession: false } });
+    const all = await sb.from("stocks").select("symbol", { count: "exact", head: true });
+    if (all.error) return Response.json({ error: all.error.message }, { status: 500 });
+    total = all.count ?? 0;
+    // PostgREST returns at most 1000 rows per request, so page through
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("stocks").select("country,sector").eq("has_details", true).order("symbol").range(from, from + 999);
+      if (error) return Response.json({ error: error.message }, { status: 500 });
+      rows.push(...(data as Row[]));
+      if (data.length < 1000) break;
+    }
   } else {
-    rows = mockUniverse().map((r) => ({ ...r, has_details: true }));
+    rows = mockUniverse();
+    total = rows.length;
   }
-  const all = rows.length;
-  const tally = (pick: (r: (typeof rows)[number]) => string | null) => {
+
+  const tally = (pick: (r: Row) => string | null) => {
     const m = new Map<string, number>();
     for (const r of rows) {
       const k = pick(r);
@@ -22,7 +35,5 @@ export async function GET() {
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count }));
   };
-  const analysed = rows.filter((r) => r.has_details);
-  rows = analysed; // chips only offer values that can actually match
-  return Response.json({ markets: tally((r) => r.country), industries: tally((r) => r.sector), total: all, analysed: analysed.length });
+  return Response.json({ markets: tally((r) => r.country), industries: tally((r) => r.sector), total, analysed: rows.length });
 }

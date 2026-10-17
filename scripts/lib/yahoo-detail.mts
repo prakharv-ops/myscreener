@@ -2,7 +2,21 @@
 import YahooFinance from "yahoo-finance2";
 import { scoreAll } from "../../src/lib/scoring";
 
-export const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+const quiet = { info() {}, warn() {}, error() {}, debug() {}, dir() {} }; // the library dumps full request URLs on errors
+export const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"], logger: quiet });
+
+/** Retry transient failures (rate limits, network blips) with backoff; "not found" is final. */
+export async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const msg = String((e as Error).message);
+      if (attempt >= tries || /not found|no fundamentals/i.test(msg)) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+}
 
 export const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 export const pctOf = (v: unknown) => (num(v) == null ? null : +((v as number) * 100).toFixed(2));
