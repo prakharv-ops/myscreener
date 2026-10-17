@@ -51,6 +51,8 @@ describe("duplicate listings", () => {
     expect(isFundLike({ name: "Sprott Physical Gold Trust", industry: null })).toBe(true);
     expect(isFundLike({ name: "F&C Investment Trust Ord", industry: null })).toBe(true);
     expect(isFundLike({ name: "Some Acquisition Corp", industry: "Shell Companies" })).toBe(true);
+    expect(isFundLike({ name: "JPMorgan Global Growth & Income Ord", industry: null })).toBe(true); // UK investment trust
+    expect(isFundLike({ name: "Ordina N.V.", industry: null })).toBe(false); // "Ord" only counts as the trailing share-class word
     expect(isFundLike({ name: "Northern Trust Corporation", industry: "Asset Management" })).toBe(false);
     expect(isFundLike({ name: "Digital Realty Trust, Inc.", industry: "REIT - Specialty" })).toBe(false);
     expect(isFundLike({ name: "SBI Funds Management Limited", industry: "Asset Management" })).toBe(false);

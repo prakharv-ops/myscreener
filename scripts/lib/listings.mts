@@ -31,6 +31,8 @@ export const normName = (s: string) => s.toLowerCase().replace(/[.,'’&()\-/]/g
 /** Closed-end funds, unit/physical-metal trusts, investment trusts and SPAC shells: hidden by default. */
 export const isFundLike = (r: Pick<ListingRow, "name" | "industry">) =>
   r.industry === "Shell Companies" ||
+  // UK investment trusts appear as "<Name> Ord" with no company profile (no industry) on Yahoo
+  (!r.industry && /\sOrd$/i.test(r.name)) ||
   /\b(fund|etf|etn|closed[- ]end)\b/i.test(r.name) ||
   /\b(physical (gold|silver|platinum|palladium|uranium|metals?)|investment trust)\b/i.test(r.name) ||
   (r.industry === "Asset Management" && /\b(trust|portfolio|income shares|capital shares)\b/i.test(r.name) && !/\b(corp|corporation|bank|bancorp|company|financial|group|holdings?)\b/i.test(r.name));
