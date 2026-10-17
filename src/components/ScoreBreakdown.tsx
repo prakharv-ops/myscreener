@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { SNOWFLAKE_AXES } from "@/lib/metrics";
 import { fmtCap, fmtNum } from "@/lib/format";
-import { explainAll, type AxisKey, type Check } from "@/lib/scoring";
+import { explainAll, type AxisExplanation, type AxisKey, type Check } from "@/lib/scoring";
 import type { StockRow } from "@/lib/screen";
 
 const fmtValue = (c: Check) => {
@@ -19,8 +19,9 @@ const tone = (s: number) => (s >= 7 ? "text-emerald-400" : s >= 4 ? "text-amber-
 const barTone = (s: number) => (s >= 0.7 ? "bg-emerald-400" : s >= 0.4 ? "bg-amber-400" : "bg-red-400");
 
 /** "Why this score?": every Snowflake axis with the checks it was computed from (same code as the scores). */
-export function ScoreBreakdown({ row }: { row: StockRow }) {
-  const ex = useMemo(() => explainAll(row), [row]);
+export function ScoreBreakdown({ row, explain }: { row: StockRow; explain?: Record<AxisKey, AxisExplanation> | null }) {
+  // the server sends the explanation computed with peer stats; without it, fall back to absolute-only checks
+  const ex = useMemo(() => explain ?? explainAll(row), [row, explain]);
   // open the weakest axis by default: that's usually the question ("why is Value so low?")
   const weakest = useMemo(() => SNOWFLAKE_AXES.map((a) => a.key as AxisKey).sort((a, b) => ex[a].score - ex[b].score)[0], [ex]);
   const [open, setOpen] = useState<AxisKey | null>(weakest);
@@ -57,7 +58,7 @@ export function ScoreBreakdown({ row }: { row: StockRow }) {
                     <div key={i} className={`grid grid-cols-[1fr_auto_3rem] items-center gap-x-3 ${c.score === null ? "opacity-45" : ""}`}>
                       <div className="min-w-0">
                         <div className="truncate text-xs text-zinc-300">{c.label}</div>
-                        <div className="truncate text-[10.5px] text-zinc-500">{c.score === null ? "skipped (no data)" : c.rule}</div>
+                        <div className="truncate text-[10.5px] text-zinc-500" title={c.rule}>{c.score === null && !c.rule.startsWith("skipped") ? "skipped (no data)" : c.rule}</div>
                       </div>
                       <div className="text-right text-xs tabular-nums text-zinc-200">{fmtValue(c)}</div>
                       <div className="flex items-center justify-end gap-1.5" title={c.score === null ? "not counted" : `contributes ${(c.score * 10).toFixed(1)} / 10`}>

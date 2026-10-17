@@ -4,6 +4,7 @@ import { MAX_AXIS, MAX_TOTAL, METRIC_GROUPS, METRICS, SNOWFLAKE_AXES } from "@/l
 import { fmtMetric, fmtNum } from "@/lib/format";
 import type { LivePrice } from "@/lib/use-live";
 import type { StockRow } from "@/lib/screen";
+import type { AxisExplanation, AxisKey } from "@/lib/scoring";
 import { PriceChart } from "./PriceChart";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 
@@ -36,7 +37,7 @@ function BigSnowflake({ row }: { row: StockRow }) {
 }
 
 export function StockDrawer({ symbol, live, onClose }: { symbol: string | null; live: Record<string, LivePrice>; onClose: () => void }) {
-  const [row, setRow] = useState<(StockRow & { description?: string | null; updated_at?: string }) | null>(null);
+  const [row, setRow] = useState<(StockRow & { description?: string | null; updated_at?: string; explain?: Record<AxisKey, AxisExplanation> | null }) | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
 
   useEffect(() => {
@@ -100,7 +101,7 @@ export function StockDrawer({ symbol, live, onClose }: { symbol: string | null; 
                 <div className="rounded-lg border border-white/10 p-3 text-xs text-zinc-400">Full analysis for this stock hasn&apos;t run yet; it fills in during the nightly refresh.</div>
               )}
 
-              {row.has_details && <ScoreBreakdown key={`why-${row.symbol}`} row={row} />}
+              {row.has_details && <ScoreBreakdown key={`why-${row.symbol}`} row={row} explain={row.explain} />}
 
               {row.description && <p className="line-clamp-6 text-sm leading-relaxed text-zinc-400">{row.description}</p>}
 

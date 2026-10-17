@@ -26,7 +26,7 @@ export const PRESETS: Preset[] = [
     title: "Undervalued quality",
     blurb: "Profitable, healthy companies trading cheaply versus earnings, cash flow and analyst targets.",
     emoji: "💎",
-    filters: { snowflake: { value: 6.5, quality: 6.5, health: 5 }, capSizes: ["mega", "large", "mid", "small"] },
+    filters: { snowflake: { value: 7, quality: 7, health: 6 }, capSizes: ["mega", "large", "mid", "small"] },
     sort: { key: "score_total", dir: "desc" },
   },
   {
@@ -50,7 +50,7 @@ export const PRESETS: Preset[] = [
     title: "Quality compounders",
     blurb: "High returns on equity, fat margins, a strong track record and little debt.",
     emoji: "🏰",
-    filters: { snowflake: { quality: 7, past: 6, health: 6 }, metrics: [{ key: "roe", min: 15 }] },
+    filters: { snowflake: { quality: 8, past: 6.5, health: 6.5 }, metrics: [{ key: "roe", min: 15 }], capSizes: ["mega", "large", "mid", "small"] },
     sort: { key: "score_quality", dir: "desc" },
   },
   {
@@ -90,7 +90,7 @@ export const PRESETS: Preset[] = [
     title: "Fallen angels",
     blurb: "Quality businesses down 30%+ from their 52-week high.",
     emoji: "🪂",
-    filters: { snowflake: { quality: 6, health: 5 }, metrics: [{ key: "pct_from_high", max: -30 }], capSizes: ["mega", "large", "mid"] },
+    filters: { snowflake: { quality: 7, health: 6 }, metrics: [{ key: "pct_from_high", max: -30 }], capSizes: ["mega", "large", "mid"] },
     sort: { key: "pct_from_high", dir: "asc" },
   },
   {
@@ -106,7 +106,7 @@ export const PRESETS: Preset[] = [
     title: "Founder & insider owned",
     blurb: "Insiders own 20%+ of the company: management with skin in the game.",
     emoji: "🤝",
-    filters: { snowflake: { quality: 6 }, metrics: [{ key: "insider_pct", min: 25 }], capSizes: ["mega", "large", "mid"] },
+    filters: { snowflake: { quality: 7.5 }, metrics: [{ key: "insider_pct", min: 30 }], capSizes: ["mega", "large", "mid"] },
     sort: { key: "insider_pct", dir: "desc" },
   },
   {
@@ -114,7 +114,7 @@ export const PRESETS: Preset[] = [
     title: "Fortress small caps",
     blurb: "$300m–2b companies with almost no debt and plenty of liquidity.",
     emoji: "🛡️",
-    filters: { capSizes: ["small"], snowflake: { past: 5 }, metrics: [{ key: "debt_to_equity", max: 30 }, { key: "current_ratio", min: 1.5 }] },
+    filters: { capSizes: ["small"], snowflake: { past: 6, quality: 6 }, metrics: [{ key: "debt_to_equity", max: 30 }, { key: "current_ratio", min: 1.5 }] },
     sort: { key: "score_total", dir: "desc" },
   },
   {
@@ -122,7 +122,7 @@ export const PRESETS: Preset[] = [
     title: "Asia tech leaders",
     blurb: "Profitable Asia-Pacific technology companies worth $2b+.",
     emoji: "🌏",
-    filters: { regions: ["Asia-Pacific"], sectors: ["Technology"], capSizes: ["mega", "large", "mid"], snowflake: { quality: 6 } },
+    filters: { regions: ["Asia-Pacific"], sectors: ["Technology"], capSizes: ["mega", "large", "mid"], snowflake: { quality: 7 } },
     sort: { key: "score_total", dir: "desc" },
   },
   {
@@ -130,7 +130,7 @@ export const PRESETS: Preset[] = [
     title: "European income",
     blurb: "European dividend payers yielding 4%+.",
     emoji: "🇪🇺",
-    filters: { regions: ["Europe"], snowflake: { dividends: 6 }, metrics: [{ key: "div_yield", min: 4 }] },
+    filters: { regions: ["Europe"], snowflake: { dividends: 7, health: 5 }, metrics: [{ key: "div_yield", min: 4 }] },
     sort: { key: "div_yield", dir: "desc" },
   },
   {
@@ -138,7 +138,7 @@ export const PRESETS: Preset[] = [
     title: "India quality",
     blurb: "Indian companies with strong profitability and balance sheets.",
     emoji: "🇮🇳",
-    filters: { markets: ["India"], snowflake: { quality: 6, health: 6 } },
+    filters: { markets: ["India"], snowflake: { quality: 7.5, health: 7 }, capSizes: ["mega", "large", "mid", "small"] },
     sort: { key: "score_total", dir: "desc" },
   },
   {

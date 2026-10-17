@@ -1,6 +1,7 @@
 // Shared Yahoo "full details" fetch + scoring used by ingest.mts and enrich.mts.
 import YahooFinance from "yahoo-finance2";
 import { regionOf } from "../../src/lib/regions";
+import type { PeerStats } from "../../src/lib/peers";
 import { scoreAll } from "../../src/lib/scoring";
 import { capToUsd, loadFx } from "./fx.mjs";
 import { computeReturns, epsCagr, estimateFrom, num, pctOf } from "./calc.mjs";
@@ -74,7 +75,8 @@ async function returns(symbol: string) {
   return computeReturns(d.quotes, w.quotes, now);
 }
 
-export async function fetchDetail(symbol: string) {
+/** Full details + scores for one symbol. Pass peer stats to include the industry-relative checks. */
+export async function fetchDetail(symbol: string, peers?: PeerStats) {
   const noReturns = { ret_7d: null, ret_5y: null, ret_1m: null, ret_3m: null, ret_6m: null, ret_ytd: null };
   // the main call is required (throws = stock fails and is retried later); the others may legitimately be empty
   const [s, past5, rets] = await Promise.all([
@@ -151,6 +153,6 @@ export async function fetchDetail(symbol: string) {
     details_updated_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  return { ...row, ...scoreAll(row as never) };
+  return { ...row, ...scoreAll(row as never, peers) };
 }
 

@@ -2,6 +2,7 @@
 // Data source: yahoo-finance2 (unofficial; fine for personal use, swap provider here if needed).
 import { readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
+import { loadPeerStats } from "./lib/peers-db.mjs";
 import { fetchDetail } from "./lib/yahoo-detail.mjs";
 
 const url = process.env.SUPABASE_URL;
@@ -15,6 +16,7 @@ const symbols = cli.length ? cli : readFileSync(new URL("./tickers.txt", import.
   .filter((s, i, a) => a.indexOf(s) === i); // dedupe
 
 const DRY = Boolean(process.env.DRY_RUN);
+const peers = DRY ? undefined : await loadPeerStats(sb);
 const CONCURRENCY = 4;
 const BATCH = 50;
 if (DRY) console.log("DRY_RUN: not writing to Supabase");
@@ -37,7 +39,7 @@ async function worker() {
   while (next < symbols.length) {
     const sym = symbols[next++];
     try {
-      const row = await fetchDetail(sym);
+      const row = await fetchDetail(sym, peers);
       pending.push(row);
       console.log(`ok   ${sym}  (${next}/${symbols.length})`);
       if (DRY) { const { description: _d, ...r } = row; console.log(JSON.stringify(r)); }

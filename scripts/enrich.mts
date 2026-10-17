@@ -5,6 +5,7 @@
 // biggest companies first, then refreshes the stalest ones. Time-boxed so it can run nightly;
 // the whole US universe fills in over a few nights. Symbols that keep failing are skipped after 3 tries.
 import { createClient } from "@supabase/supabase-js";
+import { loadPeerStats } from "./lib/peers-db.mjs";
 import { fetchDetail } from "./lib/yahoo-detail.mjs";
 
 const url = process.env.SUPABASE_URL;
@@ -20,6 +21,8 @@ const MINUTES = arg("minutes", Number(process.env.ENRICH_MINUTES ?? 30));
 const LIMIT = arg("limit", 100000);
 const STALE_DAYS = Number(process.env.ENRICH_STALE_DAYS ?? 7);
 const deadline = Date.now() + MINUTES * 60_000;
+// peer stats for industry-relative scores (a snapshot; the nightly rescore recomputes everything with fresh stats)
+const peers = await loadPeerStats(sb);
 
 // PostgREST returns at most 1000 rows per request, so page through
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,7 +65,7 @@ async function worker() {
   while (i < queue.length && Date.now() < deadline) {
     const sym = queue[i++];
     try {
-      batch.push(await fetchDetail(sym)); // retries + pacing happen per request inside fetchDetail
+      batch.push(await fetchDetail(sym, peers)); // retries + pacing happen per request inside fetchDetail
       ok++;
       if (batch.length >= 25) await flush();
     } catch (e) {

@@ -1,8 +1,12 @@
+import { peerScore, type PeerMetric, type PeerStats } from "./peers";
 import type { StockRow } from "./screen";
 
 // Snowflake scoring. Every axis is a list of named checks; each check maps one metric onto 0..1
 // (bad -> 0, good -> 1, linear in between, clamped). An axis score is the average of the checks that have
 // data, scaled to 0–10 with one decimal. Missing data is ignored rather than punished; no data at all -> 0.
+// Industry-sensitive metrics (valuation multiples, margins, returns, leverage) are also scored relative to peers:
+// the stock's percentile within its industry (or sector / whole market when the industry is small), so a bank
+// isn't "cheap" just because banks always trade on low multiples. Pass PeerStats to get those checks.
 // `explainAll` returns the same checks the scores are computed from, so the "why" can never drift from the score.
 
 type M = Partial<StockRow>;
@@ -24,6 +28,8 @@ export interface Check {
   score: number | null;
   /** plain-English rule, e.g. "full marks at ≤ 8×, none at ≥ 45×" */
   rule: string;
+  /** set on peer-relative checks */
+  peer?: { group: "industry" | "sector" | "market"; groupName: string; n: number; median: number | null };
 }
 
 export type AxisKey = "value" | "future" | "past" | "health" | "dividends" | "momentum" | "quality" | "sentiment";
@@ -48,19 +54,37 @@ function lcPos(label: string, value: number | null | undefined, bad: number, goo
   const c = lc(label, value, bad, good, unit);
   return n(value) && value > 0 ? c : { ...c, score: null, rule: `${c.rule} (skipped when not positive)` };
 }
+/** Peer-relative check: percentile of the stock's value within its industry/sector/market. */
+function rc(label: string, m: M, metric: PeerMetric, peers: PeerStats | undefined, unit: Check["unit"]): Check {
+  const raw = (m as Record<string, unknown>)[metric];
+  const value = n(raw as number) ? (raw as number) : null;
+  const r = peerScore(peers, m, metric);
+  if (!r) {
+    const why = value == null ? "no data" : !peers ? "peer data unavailable" : "not comparable (negative / no peers)";
+    return { label, value, unit, score: null, rule: `skipped: ${why}` };
+  }
+  const med = r.median == null ? "" : `, median ${unitStr(unit, +r.median.toFixed(1))}`;
+  const where = r.group === "market" ? "all stocks" : `${r.n} ${r.groupName} ${r.group === "sector" ? "sector " : ""}peers`;
+  return {
+    label, value, unit, score: r.score,
+    rule: `better than ${Math.round(r.score * 100)}% of ${where}${med}`,
+    peer: { group: r.group, groupName: r.groupName, n: r.n, median: r.median },
+  };
+}
 const yes = (label: string, ok: boolean | null, rule: string): Check => ({ label, value: ok == null ? null : ok ? 1 : 0, unit: "yesno", score: ok == null ? null : ok ? 1 : 0, rule });
 
-const AXES: Record<AxisKey, (m: M) => Check[]> = {
-  value: (m) => [
+const AXES: Record<AxisKey, (m: M, p?: PeerStats) => Check[]> = {
+  value: (m, p) => [
     // a negative PE means the company is loss-making: scored 0 rather than skipped
-    n(m.pe) && m.pe <= 0 ? { label: "PE ratio", value: m.pe, unit: "x", score: 0, rule: "loss-making (negative earnings) scores 0" } : lc("PE ratio", m.pe, 45, 8, "x"),
-    lcPos("Price / book", m.pb, 8, 1),
+    n(m.pe) && m.pe <= 0 ? { label: "PE vs market", value: m.pe, unit: "x", score: 0, rule: "loss-making (negative earnings) scores 0" } : lc("PE vs market", m.pe, 45, 8, "x"),
+    rc("PE vs industry", m, "pe", p, "x"),
+    rc("Price / book vs industry", m, "pb", p, "x"),
+    rc("Price / sales vs industry", m, "ps", p, "x"),
+    rc("EV / EBITDA vs industry", m, "ev_ebitda", p, "x"),
+    rc("Free cash flow yield vs industry", m, "fcf_yield", p, "pct"),
     lcPos("PEG ratio", m.peg, 3, 0.8),
-    lc("Upside to analyst target", upside(m), -10, 40, "pct"),
     lcPos("Forward PE", m.forward_pe, 40, 8),
-    lcPos("Price / sales", m.ps, 12, 0.8),
-    lcPos("EV / EBITDA", m.ev_ebitda, 30, 6),
-    lc("Free cash flow yield", m.fcf_yield, 0, 8, "pct"),
+    lc("Upside to analyst target", upside(m), -10, 40, "pct"),
   ],
   future: (m) => [
     lc("Forecast EPS growth", m.earnings_growth_est_1y, -5, 30, "pct"),
@@ -75,8 +99,9 @@ const AXES: Record<AxisKey, (m: M) => Check[]> = {
     lc("Return on equity", m.roe, 5, 25, "pct"),
     lc("Return on assets", m.roa, 1, 12, "pct"),
   ],
-  health: (m) => [
+  health: (m, p) => [
     lc("Debt / equity", m.debt_to_equity, 200, 20, "pct"),
+    rc("Debt / equity vs industry", m, "debt_to_equity", p, "pct"),
     lc("Return on assets", m.roa, 0, 10, "pct"),
     {
       label: "Size (market cap)",
@@ -87,7 +112,7 @@ const AXES: Record<AxisKey, (m: M) => Check[]> = {
     },
     yes("Profitable (EPS > 0)", n(m.eps) ? m.eps > 0 : null, "yes = full marks, no = none"),
     lc("Beta (volatility)", m.beta, 2, 0.6, "num"),
-    lc("Current ratio", m.current_ratio, 0.7, 2, "x"),
+    rc("Current ratio vs industry", m, "current_ratio", p, "x"),
   ],
   dividends: (m) => [
     lc("Dividend yield", n(m.div_yield) && m.div_yield > 0 ? m.div_yield : null, 0, 4.5, "pct"),
@@ -111,12 +136,14 @@ const AXES: Record<AxisKey, (m: M) => Check[]> = {
     lc("5-year return", m.ret_5y, -20, 250, "pct"),
     lc("Distance from 52-week high", m.pct_from_high, -40, -3, "pct"),
   ],
-  quality: (m) => [
+  quality: (m, p) => [
     lc("Return on equity", m.roe, 4, 30, "pct"),
-    lc("Return on assets", m.roa, 1, 12, "pct"),
-    lc("Net profit margin", m.profit_margin, 2, 30, "pct"),
-    lc("Gross margin", m.gross_margin, 15, 65, "pct"),
-    lc("Operating margin", m.operating_margin, 3, 35, "pct"),
+    // margins and returns differ hugely by industry (a grocer's 3% net margin is fine, a software firm's isn't)
+    rc("Return on equity vs industry", m, "roe", p, "pct"),
+    rc("Return on assets vs industry", m, "roa", p, "pct"),
+    rc("Net margin vs industry", m, "profit_margin", p, "pct"),
+    rc("Gross margin vs industry", m, "gross_margin", p, "pct"),
+    rc("Operating margin vs industry", m, "operating_margin", p, "pct"),
   ],
   sentiment: (m) => [
     lc("Upside to analyst target", upside(m), -5, 35, "pct"),
@@ -135,8 +162,8 @@ const AXES: Record<AxisKey, (m: M) => Check[]> = {
 
 export const AXIS_KEYS = Object.keys(AXES) as AxisKey[];
 
-export function explainAxis(axis: AxisKey, m: M): AxisExplanation {
-  const checks = AXES[axis](m);
+export function explainAxis(axis: AxisKey, m: M, peers?: PeerStats): AxisExplanation {
+  const checks = AXES[axis](m, peers);
   if (axis === "dividends" && !(n(m.div_yield) && m.div_yield > 0)) {
     return { axis, score: 0, checks, note: "Pays no dividend, so this axis scores 0." };
   }
@@ -150,11 +177,11 @@ export function explainAxis(axis: AxisKey, m: M): AxisExplanation {
   return { axis, score: to10(raw), checks, note };
 }
 
-export function explainAll(m: M): Record<AxisKey, AxisExplanation> {
-  return Object.fromEntries(AXIS_KEYS.map((a) => [a, explainAxis(a, m)])) as Record<AxisKey, AxisExplanation>;
+export function explainAll(m: M, peers?: PeerStats): Record<AxisKey, AxisExplanation> {
+  return Object.fromEntries(AXIS_KEYS.map((a) => [a, explainAxis(a, m, peers)])) as Record<AxisKey, AxisExplanation>;
 }
 
-export const scoreValue = (m: M) => explainAxis("value", m).score;
+export const scoreValue = (m: M, p?: PeerStats) => explainAxis("value", m, p).score;
 export const scoreFuture = (m: M) => explainAxis("future", m).score;
 export const scorePast = (m: M) => explainAxis("past", m).score;
 export const scoreHealth = (m: M) => explainAxis("health", m).score;
@@ -163,8 +190,9 @@ export const scoreMomentum = (m: M) => explainAxis("momentum", m).score;
 export const scoreQuality = (m: M) => explainAxis("quality", m).score;
 export const scoreSentiment = (m: M) => explainAxis("sentiment", m).score;
 
-export function scoreAll(m: M) {
-  const e = explainAll(m);
+/** All axis scores + total. Without peers the peer-relative checks are skipped (absolute checks only). */
+export function scoreAll(m: M, peers?: PeerStats) {
+  const e = explainAll(m, peers);
   const s = {
     score_value: e.value.score,
     score_future: e.future.score,
@@ -177,3 +205,13 @@ export function scoreAll(m: M) {
   };
   return { ...s, score_total: Math.round(Object.values(s).reduce((a, b) => a + b, 0) * 10) / 10 };
 }
+
+/** Every column the scoring reads (lets callers fetch just these instead of whole rows). */
+export const SCORE_INPUT_COLUMNS = [
+  "price", "analyst_target", "pe", "pb", "peg", "forward_pe", "ps", "ev_ebitda", "fcf_yield",
+  "earnings_growth_est_1y", "earnings_growth_past_1y", "earnings_growth_past_5y", "revenue_growth",
+  "roe", "roa", "profit_margin", "gross_margin", "operating_margin", "debt_to_equity", "current_ratio",
+  "market_cap", "market_cap_usd", "eps", "beta", "div_yield", "payout_ratio",
+  "ret_7d", "ret_1m", "ret_3m", "ret_6m", "ret_1y", "ret_5y", "pct_from_high",
+  "analyst_rating", "analyst_count", "short_pct", "institution_pct", "industry", "sector",
+] as const;

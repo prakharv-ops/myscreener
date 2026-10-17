@@ -23,7 +23,7 @@ npm run dev        # works immediately on mock data
 Alert digests can be POSTed to Slack / Discord incoming webhooks or any HTTPS endpoint (`ALERT_WEBHOOK_URLS`, optional HMAC signing with `ALERT_WEBHOOK_SECRET`; see `.env.example`). To trigger work *into* the app from elsewhere, call `POST /api/alerts/run` with `Authorization: Bearer $CRON_SECRET`. (No free market-data API offers webhooks; Benzinga does, via sales.)
 
 ## Snowflake
-8 axes (Value, Future, Past, Health, Dividends, Momentum, Quality, Sentiment), each a smooth 0–10 blend of several metrics (`src/lib/scoring.ts`). Click/drag an axis to set a minimum. After editing the scoring rules run `npm run rescore` (no Yahoo calls).
+8 axes (Value, Future, Past, Health, Dividends, Momentum, Quality, Sentiment), each a smooth 0–10 average of named checks (`src/lib/scoring.ts`). Industry-sensitive metrics (valuation multiples, margins, returns on capital, leverage) are scored by percentile **within the stock's industry** (sector, then whole market, when the industry has < 15 comparable stocks — `src/lib/peers.ts`), alongside absolute checks such as PE vs market. The stock panel's "Why this score?" shows every check, value, rule and peer group. Click/drag an axis to set a minimum. After editing the scoring rules run `npm run rescore` (no Yahoo calls; rebuilds peer stats first).
 
 ## Live prices
 `/api/live` streams prices (SSE) for the stocks on screen. Default: Yahoo polling for all markets. Set `FINNHUB_API_KEY` to stream US stocks over Finnhub's free WebSocket (restart the dev server after adding it). Needs a long-running Node server (`npm run dev` / `npm start` / a VPS), not serverless.

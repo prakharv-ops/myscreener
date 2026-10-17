@@ -1,4 +1,5 @@
 import { regionOf } from "./regions";
+import { buildPeerStats } from "./peers";
 import { scoreAll } from "./scoring";
 import type { StockRow } from "./screen";
 
@@ -20,10 +21,13 @@ const MARKETS: [string, string, string][] = [
 ];
 const SECTORS = ["Technology", "Healthcare", "Financial Services", "Energy", "Industrials", "Consumer Cyclical", "Utilities", "Basic Materials"];
 
+let cache: StockRow[] | null = null;
+
 export function mockUniverse(n = 400): StockRow[] {
+  if (cache && cache.length === n) return cache;
   const r = rng(42);
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
-  return Array.from({ length: n }, (_, i) => {
+  const rows = Array.from({ length: n }, (_, i) => {
     const [country, exchange, currency] = pick(MARKETS);
     const sector = pick(SECTORS);
     const sym = `${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + ((i * 7) % 26))}${String.fromCharCode(65 + ((i * 13) % 26))}`;
@@ -57,6 +61,10 @@ export function mockUniverse(n = 400): StockRow[] {
       is_primary_listing: true,
     };
     const full = { ...row, market_cap_usd: row.market_cap } as unknown as StockRow; // mock: pretend local = USD
-    return { ...full, ...scoreAll(full) } as StockRow;
+    return full;
   });
+  // second pass: score against the whole mock universe so industry-relative checks work like production
+  const peers = buildPeerStats(rows);
+  cache = rows.map((row) => ({ ...row, ...scoreAll(row, peers) }) as StockRow);
+  return cache;
 }

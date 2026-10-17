@@ -24,7 +24,7 @@ describe("lin", () => {
 
 describe("axis scores", () => {
   it("are the mean of the checks that have data, on a 0–10 scale", () => {
-    const e = explainAxis("quality", stock({ roe: 30, roa: 1 })); // 1 and 0, everything else missing
+    const e = explainAxis("past", stock({ roe: 25, roa: 1 })); // 1 and 0, everything else missing
     expect(e.checks.filter((c) => c.score !== null)).toHaveLength(2);
     expect(e.score).toBe(5);
   });
@@ -38,14 +38,15 @@ describe("axis scores", () => {
 
   it("score a loss-making company's PE as 0 rather than skipping it", () => {
     const e = explainAxis("value", stock({ pe: -12 }));
-    expect(e.checks.find((c) => c.label === "PE ratio")?.score).toBe(0);
+    expect(e.checks.find((c) => c.label === "PE vs market")?.score).toBe(0);
+    expect(e.checks.find((c) => c.label === "PE vs industry")?.score).toBeNull(); // no peer rank for a loss
     expect(e.score).toBe(0);
   });
 
-  it("skip non-positive valuation ratios (P/B of a company with negative equity isn't 'cheap')", () => {
-    const e = explainAxis("value", stock({ pb: -3, pe: 8 }));
-    expect(e.checks.find((c) => c.label === "Price / book")?.score).toBeNull();
-    expect(e.score).toBe(10); // only the PE counts
+  it("skip non-positive valuation ratios (PEG of a shrinking company isn't 'cheap')", () => {
+    const e = explainAxis("value", stock({ peg: -0.5, pe: 8 }));
+    expect(e.checks.find((c) => c.label === "PEG ratio")?.score).toBeNull();
+    expect(e.score).toBe(10); // only the absolute PE counts (no peers given)
   });
 
   it("give dividends 0 when there is no dividend", () => {

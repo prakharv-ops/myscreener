@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { mockUniverse } from "@/lib/mock";
+import { getPeerStats } from "@/lib/peers-server";
 
 type Kind = "region" | "country" | "sector" | "industry";
 interface Facet { name: string; count: number }
@@ -12,6 +13,7 @@ export async function GET() {
   let total: number, analysed: number;
 
   if (url && key) {
+    void getPeerStats().catch(() => {}); // warm the peer-stats cache so the first stock panel opens fast
     const sb = createClient(url, key, { auth: { persistSession: false } });
     const [all, done, facets] = await Promise.all([
       sb.from("stocks").select("symbol", { count: "exact", head: true }),
