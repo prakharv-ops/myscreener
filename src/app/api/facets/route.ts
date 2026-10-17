@@ -22,7 +22,7 @@ export async function GET() {
     if (err) return Response.json({ error: err.message }, { status: 500 });
     total = all.count ?? 0;
     analysed = done.count ?? 0;
-    for (const f of facets.data as { kind: Kind; name: string; n: number }[]) out[f.kind]?.push({ name: f.name, count: f.n });
+    for (const f of facets.data as { kind: Kind; name: string; n: number }[]) if (f.name?.trim()) out[f.kind]?.push({ name: f.name, count: f.n });
   } else {
     const rows = mockUniverse();
     total = analysed = rows.length;
