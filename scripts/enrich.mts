@@ -1,4 +1,6 @@
-// Usage: npm run enrich [-- --minutes 30] [-- --limit 500]
+// Usage: npm run enrich [-- --minutes 30] [-- --limit 500] [-- --refill]
+// --refill: first re-enrich analysed stocks that predate the newer metrics (margins, revenue growth,
+//           1M/3M/6M returns...), largest first, then continue with the normal queue.
 // Fills in full details (sector, ROE, margins, growth, returns, scores...) for rows that lack them,
 // biggest companies first, then refreshes the stalest ones. Time-boxed so it can run nightly;
 // the whole US universe fills in over a few nights. Symbols that keep failing are skipped after 3 tries.
@@ -36,8 +38,13 @@ const freshIds = await ids(() => sb.from("stocks").select("symbol").eq("has_deta
 const staleIds = await ids(() => sb.from("stocks").select("symbol").eq("has_details", true)
   .lt("details_updated_at", new Date(Date.now() - STALE_DAYS * 864e5).toISOString())
   .order("details_updated_at", { ascending: true }).order("symbol"));
-const queue = [...freshIds, ...staleIds].slice(0, LIMIT);
-console.log(`queue: ${freshIds.length} new + ${staleIds.length} stale; budget ${MINUTES} min`);
+// rows enriched before the newer metrics existed have none of them (ret_3m is set for anything with price history)
+const refillIds = process.argv.includes("--refill")
+  ? await ids(() => sb.from("stocks").select("symbol").eq("has_details", true).is("ret_3m", null).is("gross_margin", null).is("revenue_growth", null)
+      .order("market_cap_usd", { ascending: false, nullsFirst: false }).order("symbol"))
+  : [];
+const queue = [...new Set([...refillIds, ...freshIds, ...staleIds])].slice(0, LIMIT);
+console.log(`queue: ${refillIds.length ? `${refillIds.length} refill + ` : ""}${freshIds.length} new + ${staleIds.length} stale; budget ${MINUTES} min`);
 
 let ok = 0, failed = 0, i = 0;
 let batch: Record<string, unknown>[] = [];

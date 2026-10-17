@@ -138,7 +138,7 @@ export async function fetchDetail(symbol: string) {
     ev_ebitda: num(ks?.enterpriseToEbitda),
     fcf_yield: fcf != null && mcap ? +((fcf / mcap) * 100).toFixed(2) : null,
     revenue_growth: pctOf(fd?.revenueGrowth),
-    gross_margin: pctOf(fd?.grossMargins),
+    gross_margin: fd?.grossMargins ? pctOf(fd.grossMargins) : null, // banks/insurers report exactly 0 (no COGS): not applicable
     operating_margin: pctOf(fd?.operatingMargins),
     current_ratio: num(fd?.currentRatio),
     payout_ratio: pctOf(sd?.payoutRatio),
