@@ -3,6 +3,7 @@
 // (TSM / 2330.TW), Canadian Depositary Receipts (AMZN.TO). Group rows by normalised company name and mark
 // all but one as secondary (is_primary_listing = false); the screener hides secondary listings by default.
 // Preference: home-market listing > most traded (avg volume x price, in USD terms via market cap) > shortest symbol.
+// Also hidden by default: closed-end funds / unit trusts (the exchange lists exclude ETFs but not these) and SPAC shells.
 import { createClient } from "@supabase/supabase-js";
 
 const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
@@ -20,10 +21,17 @@ const listingCountry = (sym: string) => {
 const STOP = /\b(the|inc|incorporated|corp|corporation|co|company|ltd|limited|plc|sa|ag|nv|se|asa|ab|oyj|spa|tbk|bhd|berhad|pcl|kk|class [a-z]|series [a-z]|adr|ads|cdr|cad hedged|ordinary shares?|common stock)\b/g;
 const norm = (s: string) => s.toLowerCase().replace(/[.,'’&()\-/]/g, " ").replace(STOP, " ").replace(/\s+/g, "").trim();
 
-interface Row { symbol: string; name: string; country: string | null; market_cap_usd: number | null; avg_volume: number | null; price: number | null; is_primary_listing: boolean }
+interface Row { symbol: string; name: string; country: string | null; industry: string | null; market_cap_usd: number | null; avg_volume: number | null; price: number | null; is_primary_listing: boolean }
+
+// Fund-like securities: "...Fund" anywhere, or "...Trust" in asset management that isn't an operating company/bank.
+const isFundLike = (r: Row) =>
+  r.industry === "Shell Companies" ||
+  /\b(fund|etf|etn|closed[- ]end)\b/i.test(r.name) ||
+  /\b(physical (gold|silver|platinum|palladium|uranium|metals?)|investment trust)\b/i.test(r.name) ||
+  (r.industry === "Asset Management" && /\b(trust|portfolio|income shares|capital shares)\b/i.test(r.name) && !/\b(corp|corporation|bank|bancorp|company|financial|group|holdings?)\b/i.test(r.name));
 const rows: Row[] = [];
 for (let from = 0; ; from += 1000) {
-  const { data, error } = await sb.from("stocks").select("symbol,name,country,market_cap_usd,avg_volume,price,is_primary_listing").order("symbol").range(from, from + 999);
+  const { data, error } = await sb.from("stocks").select("symbol,name,country,industry,market_cap_usd,avg_volume,price,is_primary_listing").order("symbol").range(from, from + 999);
   if (error) throw error;
   rows.push(...(data as Row[]));
   if (data.length < 1000) break;
@@ -54,6 +62,9 @@ for (const g of groups.values()) {
   if (examples.length < 12) examples.push(`${best.symbol} keeps; hides ${g.filter((r) => r !== best).map((r) => r.symbol).join(", ")}`);
 }
 for (const r of rows) if (!primary.has(r.symbol) && !secondary.has(r.symbol)) primary.add(r.symbol);
+const funds = rows.filter(isFundLike);
+for (const r of funds) { primary.delete(r.symbol); secondary.add(r.symbol); }
+console.log(`${funds.length} funds / trusts / shells hidden, e.g. ${funds.slice(0, 8).map((r) => r.symbol).join(", ")}`);
 
 const toSecondary = rows.filter((r) => secondary.has(r.symbol) && r.is_primary_listing !== false).map((r) => r.symbol);
 const toPrimary = rows.filter((r) => primary.has(r.symbol) && r.is_primary_listing === false).map((r) => r.symbol);

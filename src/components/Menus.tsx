@@ -39,7 +39,7 @@ export function SavedMenu({
   saved: SavedScreen[];
   activeId: string;
   onApply: (id: string) => void;
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string) => Promise<unknown>;
   onDelete: (id: string) => void;
   onToggleAlerts: (s: SavedScreen) => void;
 }) {

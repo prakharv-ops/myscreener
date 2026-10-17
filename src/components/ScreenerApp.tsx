@@ -6,7 +6,9 @@ import type { ScreenAlert } from "@/lib/alerts";
 import type { SavedScreen } from "@/lib/saved";
 import type { ScreenResult } from "@/lib/screen";
 import { EMPTY_FILTERS, FilterSidebar, type FacetSet, type Filters } from "./FilterSidebar";
+import { IdeaBanner, IdeasMenu, IdeasStrip } from "./Ideas";
 import { AlertsMenu, SavedMenu } from "./Menus";
+import { PRESETS, type Preset } from "@/lib/presets";
 import { ResultsTable, VIEWS } from "./ResultsTable";
 import { StockDrawer } from "./StockDrawer";
 import { btn, Pill } from "./ui";
@@ -31,6 +33,7 @@ export function ScreenerApp() {
   const [alerts, setAlerts] = useState<ScreenAlert[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile only
+  const [presetId, setPresetId] = useState<string | null>(null);
 
   const { prices: live, mode: liveMode } = useLive((res?.rows ?? []).map((r) => r.symbol));
 
@@ -78,8 +81,12 @@ export function ScreenerApp() {
   }, [specKey]);
 
   // ---------- actions ----------
-  const update = useCallback((patch: Partial<Filters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(0); setActiveId(""); }, []);
-  const clearAll = () => { setFilters(EMPTY_FILTERS); setKwDraft(""); setKeywords(""); setSort(DEFAULT_SORT); setPage(0); setActiveId(""); };
+  const update = useCallback((patch: Partial<Filters>) => { setFilters((f) => ({ ...f, ...patch })); setPage(0); setActiveId(""); setPresetId(null); }, []);
+  const clearAll = () => { setFilters(EMPTY_FILTERS); setKwDraft(""); setKeywords(""); setSort(DEFAULT_SORT); setPage(0); setActiveId(""); setPresetId(null); };
+  const applyPreset = (p: Preset) => {
+    setFilters({ ...EMPTY_FILTERS, ...p.filters, snowflake: { ...(p.filters.snowflake ?? {}) }, metrics: [...(p.filters.metrics ?? [])] });
+    setKwDraft(""); setKeywords(""); setSort(p.sort); setPage(0); setActiveId(""); setPresetId(p.id); setSidebarOpen(false);
+  };
   const toggleSort = (key: string) => { setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" })); setPage(0); };
   const closeDrawer = useCallback(() => setSelected(null), []);
 
@@ -94,12 +101,19 @@ export function ScreenerApp() {
     setSort(s.sort ?? DEFAULT_SORT); setPage(0);
     setActiveId(id);
   };
-  const saveCurrent = async (name: string) => {
+  const saveCurrent = async (name: string): Promise<string | null> => {
     const r = await fetch("/api/screens", { method: "POST", body: JSON.stringify({ name, spec }) });
     const j = await r.json();
-    if (!r.ok) return setErr("Couldn't save the screen");
+    if (!r.ok) { setErr("Couldn't save the screen"); return null; }
     await loadSaved();
     setActiveId(j.id);
+    return j.id;
+  };
+  const saveWithAlerts = async (name: string) => {
+    const id = await saveCurrent(name);
+    if (!id) return;
+    await fetch(`/api/screens/${id}`, { method: "PATCH", body: JSON.stringify({ alerts_enabled: true }) });
+    await loadSaved();
   };
   const deleteSaved = async (id: string) => {
     await fetch(`/api/screens/${id}`, { method: "DELETE" });
@@ -146,6 +160,9 @@ export function ScreenerApp() {
     ...(keywords ? [{ label: `"${keywords}"`, remove: () => { setKwDraft(""); setKeywords(""); } }] : []),
   ];
 
+  const preset = PRESETS.find((p) => p.id === presetId) ?? null;
+  const activeSaved = saved.find((s) => s.id === activeId);
+
   const from = res && res.count ? page * pageSize + 1 : 0;
   const to = res ? Math.min((page + 1) * pageSize, res.count) : 0;
   const pages = res ? Math.max(1, Math.ceil(res.count / pageSize)) : 1;
@@ -173,6 +190,7 @@ export function ScreenerApp() {
             <span className={`h-1.5 w-1.5 rounded-full ${liveMode === "offline" ? "bg-red-400" : liveMode === "connecting" ? "bg-zinc-500" : "animate-pulse bg-emerald-400"}`} />
             {liveMode === "connecting" ? "connecting" : liveMode === "offline" ? "live feed offline" : liveMode.startsWith("finnhub") ? "live · Finnhub + Yahoo" : "live · Yahoo"}
           </span>
+          <IdeasMenu activeId={presetId} onApply={applyPreset} />
           <SavedMenu saved={saved} activeId={activeId} onApply={applySaved} onSave={saveCurrent} onDelete={deleteSaved} onToggleAlerts={toggleAlerts} />
           <AlertsMenu alerts={alerts} onCheck={checkAlerts} onMarkSeen={markSeen} />
         </div>
@@ -189,6 +207,8 @@ export function ScreenerApp() {
 
         {/* ---------- results ---------- */}
         <main className="flex min-w-0 flex-1 flex-col gap-3 p-4">
+          {preset && <IdeaBanner key={preset.id} preset={preset} saved={!!activeSaved?.alerts_enabled} onSaveWithAlerts={() => saveWithAlerts(preset.title)} onClose={clearAll} />}
+          {pills.length === 0 && <IdeasStrip onApply={applyPreset} />}
           {pills.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {pills.map((p, i) => <Pill key={p.label + i} onRemove={p.remove}>{p.label}</Pill>)}
