@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CAP_SIZES, SNOWFLAKE_AXES, metricByKey } from "@/lib/metrics";
 import { useLive } from "@/lib/use-live";
 import type { ScreenAlert } from "@/lib/alerts";
@@ -16,6 +17,7 @@ import { btn, Pill } from "./ui";
 const DEFAULT_SORT = { key: "market_cap_usd", dir: "desc" as "asc" | "desc" };
 
 export function ScreenerApp() {
+  const router = useRouter();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [keywords, setKeywords] = useState("");
   const [kwDraft, setKwDraft] = useState("");
@@ -193,6 +195,14 @@ export function ScreenerApp() {
           <IdeasMenu activeId={presetId} onApply={applyPreset} />
           <SavedMenu saved={saved} activeId={activeId} onApply={applySaved} onSave={saveCurrent} onDelete={deleteSaved} onToggleAlerts={toggleAlerts} />
           <AlertsMenu alerts={alerts} onCheck={checkAlerts} onMarkSeen={markSeen} />
+          <button
+            onClick={async () => { await fetch("/api/login", { method: "DELETE" }); router.replace("/login"); router.refresh(); }}
+            className={`${btn} hidden sm:block`}
+            title="Log out"
+            aria-label="Log out"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4.5A1.5 1.5 0 0 1 4.5 3h6A1.5 1.5 0 0 1 12 4.5V7a.75.75 0 0 1-1.5 0V4.5h-6v11h6V13a.75.75 0 0 1 1.5 0v2.5a1.5 1.5 0 0 1-1.5 1.5h-6A1.5 1.5 0 0 1 3 15.5v-11Zm10.72 2.47a.75.75 0 0 1 1.06 0l2.5 2.5a.75.75 0 0 1 0 1.06l-2.5 2.5a.75.75 0 1 1-1.06-1.06l1.22-1.22H8a.75.75 0 0 1 0-1.5h6.94l-1.22-1.22a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
+          </button>
         </div>
       </header>
 

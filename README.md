@@ -36,6 +36,14 @@ Email: set `RESEND_API_KEY`, `ALERT_EMAIL_TO` (and `ALERT_EMAIL_FROM` for your v
 
 Select a saved screen and turn **Alerts on** (first run only records a baseline). `npm run alerts` (or `POST /api/alerts/run`, or the bell's **Check now**) re-runs every alert-enabled screen and records stocks that entered or left it; the bell shows unread ones. `npm run refresh` = ingest + alerts, suitable for a daily cron. For a hosted deploy, set `CRON_SECRET` and call `/api/alerts/run` with `Authorization: Bearer <secret>` (the in-app Check now button won't work once it's set).
 
+## Login & hosting
+Set `APP_PASSWORD` to require a login (sessions are signed with `APP_SECRET`; 30 days). Production refuses to serve without `APP_PASSWORD`; local `npm run dev` stays open if it's unset.
+
+Deployed on Railway from this repo with the `Dockerfile`:
+- **web** service (`railway.json`): `next start`, health check `/api/health`.
+- **refresh** service (`railway.cron.json`, set as that service's config path): `npm run refresh` daily at 21:30 UTC (03:00 IST). The Mac launchd job at 06:30 IST stays as a backup.
+- Variables on both services: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD`, `APP_SECRET`, `CRON_SECRET` (+ optional `FINNHUB_API_KEY`, `RESEND_API_KEY`, `ALERT_EMAIL_TO`, `ALERT_WEBHOOK_URLS`).
+
 ## Layout
 - `src/lib/metrics.ts` – metric registry (add a filter = add a column + one entry)
 - `src/lib/scoring.ts` – Snowflake scoring rules (0–6 per axis)
