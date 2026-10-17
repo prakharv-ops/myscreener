@@ -39,10 +39,10 @@ Select a saved screen and turn **Alerts on** (first run only records a baseline)
 ## Login & hosting
 Set `APP_PASSWORD` to require a login (sessions are signed with `APP_SECRET`; 30 days). Production refuses to serve without `APP_PASSWORD`; local `npm run dev` stays open if it's unset.
 
-Deployed on Railway from this repo with the `Dockerfile`:
-- **web** service (`railway.json`): `next start`, health check `/api/health`.
-- **refresh** service (`railway.cron.json`, set as that service's config path): `npm run refresh` daily at 21:30 UTC (03:00 IST). The Mac launchd job at 06:30 IST stays as a backup.
-- Variables on both services: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD`, `APP_SECRET`, `CRON_SECRET` (+ optional `FINNHUB_API_KEY`, `RESEND_API_KEY`, `ALERT_EMAIL_TO`, `ALERT_WEBHOOK_URLS`).
+Deployed on Railway from this repo; infrastructure is code in `.railway/railway.ts` (`railway config plan` / `railway config apply`):
+- **web**: the Dockerfile's `next start`, health check `/api/health`, US East (next to Supabase).
+- **refresh**: same image, `npm run refresh` as a cron at 21:30 UTC (03:00 IST). The Mac launchd job at 06:30 IST stays as a backup.
+- Variables are set on Railway, not in the repo: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_PASSWORD`, `APP_SECRET`, `CRON_SECRET` (+ optional `FINNHUB_API_KEY`, `RESEND_API_KEY`, `ALERT_EMAIL_TO`, `ALERT_WEBHOOK_URLS`).
 
 ## Layout
 - `src/lib/metrics.ts` – metric registry (add a filter = add a column + one entry)
