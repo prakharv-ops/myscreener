@@ -15,34 +15,65 @@ console.error = (...args: unknown[]) => {
 const quiet = { info() {}, warn() {}, error() {}, debug() {}, dir() {} }; // the library dumps full request URLs on errors
 export const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"], logger: quiet });
 
-/** Retry transient failures (rate limits, network blips) with backoff; "not found" is final. */
-export async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
+// ---------- shared pacing + retry for every Yahoo call ----------
+// Each stock needs ~4 Yahoo requests and enrich runs 4 workers. Unpaced, that trips Yahoo's throttling, and a
+// throttled sub-request used to be swallowed as "no data". Now: one shared request pace for the whole process,
+// a global cool-down when Yahoo says "too many requests", and retries with backoff. Only genuine "no data"
+// answers are treated as empty; anything else fails the stock so it is retried later.
+const GAP_MS = Number(process.env.YAHOO_GAP_MS ?? 125); // ~8 requests/second across all workers
+let nextSlot = 0;
+let coolUntil = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const isNoData = (e: unknown) => /not found|no fundamentals|no data|delisted|invalid symbol/i.test(String((e as Error)?.message));
+const isThrottle = (e: unknown) => /too many requests|429|set-cookie|crumb|rate limit|ECONNRESET|socket hang up|fetch failed/i.test(String((e as Error)?.message));
+
+async function slot() {
+  for (;;) {
+    const now = Date.now();
+    if (coolUntil > now) { await sleep(coolUntil - now); continue; }
+    const at = Math.max(now, nextSlot);
+    nextSlot = at + GAP_MS;
+    if (at > now) await sleep(at - now);
+    return;
+  }
+}
+
+/** Run one Yahoo request with pacing, a global cool-down on throttling and up to `tries` attempts. */
+export async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
   for (let attempt = 1; ; attempt++) {
+    await slot();
     try {
       return await fn();
     } catch (e) {
-      const msg = String((e as Error).message);
-      if (attempt >= tries || /not found|no fundamentals/i.test(msg)) throw e;
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
+      if (isNoData(e) || attempt >= tries) throw e;
+      if (isThrottle(e)) coolUntil = Math.max(coolUntil, Date.now() + 10_000 * attempt); // everyone backs off together
+      await sleep(800 * 2 ** attempt + Math.random() * 400);
     }
   }
 }
+const orNull = <T,>(p: Promise<T>) => p.catch((e) => { if (isNoData(e)) return null; throw e; });
 
 export const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 export const pctOf = (v: unknown) => (num(v) == null ? null : +((v as number) * 100).toFixed(2));
 
 const DAY = 864e5;
 
-// Next-year earnings growth estimate (%), falling back to current-year.
-async function earningsEstimate(symbol: string) {
-  const t = (await yf.quoteSummary(symbol, { modules: ["earningsTrend"] })).earningsTrend?.trend ?? [];
-  const g = t.find((x) => x.period === "+1y")?.growth ?? t.find((x) => x.period === "0y")?.growth;
-  return pctOf(g);
+// Next-year earnings growth estimate (%), falling back to current-year (earningsTrend module).
+function estimateFrom(t: { period?: string; growth?: number | null; earningsEstimate?: { avg?: number | null; yearAgoEps?: number | null } }[] | undefined) {
+  const pick = (period: string) => {
+    const x = t?.find((r) => r.period === period);
+    if (!x) return null;
+    if (num(x.growth) != null) return x.growth!;
+    // some markets (e.g. Japan) have analyst EPS estimates but no precomputed growth: derive it
+    const avg = num(x.earningsEstimate?.avg), prev = num(x.earningsEstimate?.yearAgoEps);
+    return avg != null && prev != null && prev > 0 ? avg / prev - 1 : null;
+  };
+  return pctOf(pick("+1y") ?? pick("0y"));
 }
 
 // EPS CAGR (%) over the available annual history (Yahoo gives ~4-5 fiscal years).
 async function pastEpsGrowth(symbol: string) {
-  const rows = await yf.fundamentalsTimeSeries(symbol, { period1: new Date(Date.now() - 6 * 365 * DAY), type: "annual", module: "financials" });
+  const rows = await withRetry(() => yf.fundamentalsTimeSeries(symbol, { period1: new Date(Date.now() - 6 * 365 * DAY), type: "annual", module: "financials" }));
   const pts = (rows as { date: Date | string | number; dilutedEPS?: number }[])
     .filter((r) => num(r.dilutedEPS) != null)
     .sort((x, y) => +new Date(x.date) - +new Date(y.date));
@@ -58,8 +89,8 @@ async function returns(symbol: string) {
   const ret = (from: number, to: number) => (from > 0 ? +(((to / from) - 1) * 100).toFixed(2) : null);
   const now = Date.now();
   const [d, w] = await Promise.all([
-    yf.chart(symbol, { period1: new Date(now - 14 * DAY), interval: "1d" }),
-    yf.chart(symbol, { period1: new Date(now - 5 * 365.25 * DAY - 7 * DAY), interval: "1wk" }),
+    withRetry(() => yf.chart(symbol, { period1: new Date(now - 14 * DAY), interval: "1d" })),
+    withRetry(() => yf.chart(symbol, { period1: new Date(now - 5 * 365.25 * DAY - 7 * DAY), interval: "1wk" })),
   ]);
   const px = (q: { adjclose?: number | null; close?: number | null }) => q.adjclose ?? q.close ?? null;
   const dq = d.quotes.filter((q) => px(q) != null);
@@ -80,14 +111,16 @@ async function returns(symbol: string) {
 }
 
 export async function fetchDetail(symbol: string) {
-  const [est, past5, rets] = await Promise.all([
-    earningsEstimate(symbol).catch(() => null),
-    pastEpsGrowth(symbol).catch(() => null),
-    returns(symbol).catch(() => ({ ret_7d: null, ret_5y: null, ret_1m: null, ret_3m: null, ret_6m: null, ret_ytd: null })),
+  const noReturns = { ret_7d: null, ret_5y: null, ret_1m: null, ret_3m: null, ret_6m: null, ret_ytd: null };
+  // the main call is required (throws = stock fails and is retried later); the others may legitimately be empty
+  const [s, past5, rets] = await Promise.all([
+    withRetry(() => yf.quoteSummary(symbol, {
+      modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile", "earningsTrend"],
+    })),
+    orNull(pastEpsGrowth(symbol)),
+    orNull(returns(symbol)).then((r) => r ?? noReturns),
   ]);
-  const s = await yf.quoteSummary(symbol, {
-    modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile"],
-  });
+  const est = estimateFrom(s.earningsTrend?.trend);
   const price = s.price, sd = s.summaryDetail, ks = s.defaultKeyStatistics, fd = s.financialData, ap = s.assetProfile;
   await loadFx([price?.currency]);
   const fx = capToUsd(price?.currency);

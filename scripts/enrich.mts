@@ -1,11 +1,11 @@
 // Usage: npm run enrich [-- --minutes 30] [-- --limit 500] [-- --refill]
 // --refill: first re-enrich analysed stocks that predate the newer metrics (margins, revenue growth,
-//           1M/3M/6M returns...), largest first, then continue with the normal queue.
+//           1M/3M/6M returns...) or have gaps from throttled requests, largest first; then the normal queue.
 // Fills in full details (sector, ROE, margins, growth, returns, scores...) for rows that lack them,
 // biggest companies first, then refreshes the stalest ones. Time-boxed so it can run nightly;
 // the whole US universe fills in over a few nights. Symbols that keep failing are skipped after 3 tries.
 import { createClient } from "@supabase/supabase-js";
-import { fetchDetail, withRetry } from "./lib/yahoo-detail.mjs";
+import { fetchDetail } from "./lib/yahoo-detail.mjs";
 
 const url = process.env.SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -40,7 +40,9 @@ const staleIds = await ids(() => sb.from("stocks").select("symbol").eq("has_deta
   .order("details_updated_at", { ascending: true }).order("symbol"));
 // rows enriched before the newer metrics existed have none of them (ret_3m is set for anything with price history)
 const refillIds = process.argv.includes("--refill")
-  ? await ids(() => sb.from("stocks").select("symbol").eq("has_details", true).is("ret_3m", null).is("gross_margin", null).is("revenue_growth", null)
+  ? await ids(() => sb.from("stocks").select("symbol").eq("has_details", true)
+      // predates the newer metrics, or has gaps left by throttled requests: no price history / no estimate despite analyst coverage
+      .or("and(ret_3m.is.null,gross_margin.is.null,revenue_growth.is.null),and(ret_7d.is.null,ret_3m.is.null),and(earnings_growth_est_1y.is.null,analyst_count.gte.3)")
       .order("market_cap_usd", { ascending: false, nullsFirst: false }).order("symbol"))
   : [];
 const queue = [...new Set([...refillIds, ...freshIds, ...staleIds])].slice(0, LIMIT);
@@ -60,7 +62,7 @@ async function worker() {
   while (i < queue.length && Date.now() < deadline) {
     const sym = queue[i++];
     try {
-      batch.push(await withRetry(() => fetchDetail(sym)));
+      batch.push(await fetchDetail(sym)); // retries + pacing happen per request inside fetchDetail
       ok++;
       if (batch.length >= 25) await flush();
     } catch (e) {
