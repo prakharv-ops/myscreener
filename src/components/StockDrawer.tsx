@@ -4,6 +4,8 @@ import { MAX_AXIS, MAX_TOTAL, METRIC_GROUPS, METRICS, SNOWFLAKE_AXES } from "@/l
 import { fmtMetric, fmtNum } from "@/lib/format";
 import type { LivePrice } from "@/lib/use-live";
 import type { StockRow } from "@/lib/screen";
+import { PriceChart } from "./PriceChart";
+import { ScoreBreakdown } from "./ScoreBreakdown";
 
 const N = SNOWFLAKE_AXES.length, C = 110, R = 80;
 const pt = (i: number, v: number) => {
@@ -92,9 +94,13 @@ export function StockDrawer({ symbol, live, onClose }: { symbol: string | null; 
                 </div>
               </div>
 
+              <PriceChart key={`chart-${row.symbol}`} symbol={row.symbol} />
+
               {row.has_details ? <BigSnowflake row={row} /> : (
                 <div className="rounded-lg border border-white/10 p-3 text-xs text-zinc-400">Full analysis for this stock hasn&apos;t run yet; it fills in during the nightly refresh.</div>
               )}
+
+              {row.has_details && <ScoreBreakdown key={`why-${row.symbol}`} row={row} />}
 
               {row.description && <p className="line-clamp-6 text-sm leading-relaxed text-zinc-400">{row.description}</p>}
 

@@ -1,7 +1,7 @@
 // Currency -> USD multipliers via Yahoo FX quotes (e.g. EURUSD=X). Minor units (GBp, ZAc, ILA) are /100.
+import { MINOR } from "./calc.mjs";
 import { yf } from "./yahoo-detail.mjs";
 
-const MINOR: Record<string, [string, number]> = { GBp: ["GBP", 0.01], GBX: ["GBP", 0.01], ZAc: ["ZAR", 0.01], ILA: ["ILS", 0.01] };
 const cache = new Map<string, number>([["USD", 1]]);
 
 export async function loadFx(currencies: Iterable<string | null | undefined>) {

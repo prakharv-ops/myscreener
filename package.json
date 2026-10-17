@@ -15,7 +15,9 @@
     "quotes": "tsx --env-file-if-exists=.env.local scripts/quotes.mts",
     "enrich": "tsx --env-file-if-exists=.env.local scripts/enrich.mts",
     "global": "tsx --env-file-if-exists=.env.local scripts/sync-global.mts",
-    "dedupe": "tsx --env-file-if-exists=.env.local scripts/dedupe-listings.mts"
+    "dedupe": "tsx --env-file-if-exists=.env.local scripts/dedupe-listings.mts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",
@@ -28,7 +30,7 @@
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
@@ -36,6 +38,7 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5",
+    "vitest": "^5.0.5",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

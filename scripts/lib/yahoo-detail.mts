@@ -3,6 +3,7 @@ import YahooFinance from "yahoo-finance2";
 import { regionOf } from "../../src/lib/regions";
 import { scoreAll } from "../../src/lib/scoring";
 import { capToUsd, loadFx } from "./fx.mjs";
+import { computeReturns, epsCagr, estimateFrom, num, pctOf } from "./calc.mjs";
 
 // yahoo-finance2 console.error()s the full request URL on every non-2xx response (no option to disable).
 // Expected misses (delisted symbols, rate limits) would otherwise bloat the logs by megabytes per run.
@@ -53,61 +54,24 @@ export async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> 
 }
 const orNull = <T,>(p: Promise<T>) => p.catch((e) => { if (isNoData(e)) return null; throw e; });
 
-export const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-export const pctOf = (v: unknown) => (num(v) == null ? null : +((v as number) * 100).toFixed(2));
+export { num, pctOf };
 
 const DAY = 864e5;
-
-// Next-year earnings growth estimate (%), falling back to current-year (earningsTrend module).
-function estimateFrom(t: { period?: string; growth?: number | null; earningsEstimate?: { avg?: number | null; yearAgoEps?: number | null } }[] | undefined) {
-  const pick = (period: string) => {
-    const x = t?.find((r) => r.period === period);
-    if (!x) return null;
-    if (num(x.growth) != null) return x.growth!;
-    // some markets (e.g. Japan) have analyst EPS estimates but no precomputed growth: derive it
-    const avg = num(x.earningsEstimate?.avg), prev = num(x.earningsEstimate?.yearAgoEps);
-    return avg != null && prev != null && prev > 0 ? avg / prev - 1 : null;
-  };
-  return pctOf(pick("+1y") ?? pick("0y"));
-}
 
 // EPS CAGR (%) over the available annual history (Yahoo gives ~4-5 fiscal years).
 async function pastEpsGrowth(symbol: string) {
   const rows = await withRetry(() => yf.fundamentalsTimeSeries(symbol, { period1: new Date(Date.now() - 6 * 365 * DAY), type: "annual", module: "financials" }));
-  const pts = (rows as { date: Date | string | number; dilutedEPS?: number }[])
-    .filter((r) => num(r.dilutedEPS) != null)
-    .sort((x, y) => +new Date(x.date) - +new Date(y.date));
-  if (pts.length < 2) return null;
-  const a = pts[0], b = pts[pts.length - 1];
-  const years = (+new Date(b.date) - +new Date(a.date)) / (365.25 * DAY);
-  if (years < 1.5 || a.dilutedEPS! <= 0 || b.dilutedEPS! <= 0) return null;
-  return +((Math.pow(b.dilutedEPS! / a.dilutedEPS!, 1 / years) - 1) * 100).toFixed(2);
+  return epsCagr(rows as { date: Date | string | number; dilutedEPS?: number }[]);
 }
 
-// Total returns (%) from adjusted closes: 7D from daily bars, 5Y from weekly bars.
+// Total returns (%) from adjusted closes: 7D from daily bars, the rest from 5 years of weekly bars.
 async function returns(symbol: string) {
-  const ret = (from: number, to: number) => (from > 0 ? +(((to / from) - 1) * 100).toFixed(2) : null);
   const now = Date.now();
   const [d, w] = await Promise.all([
     withRetry(() => yf.chart(symbol, { period1: new Date(now - 14 * DAY), interval: "1d" })),
     withRetry(() => yf.chart(symbol, { period1: new Date(now - 5 * 365.25 * DAY - 7 * DAY), interval: "1wk" })),
   ]);
-  const px = (q: { adjclose?: number | null; close?: number | null }) => q.adjclose ?? q.close ?? null;
-  const dq = d.quotes.filter((q) => px(q) != null);
-  const last = dq.at(-1);
-  const base = [...dq].reverse().find((q) => last && +q.date <= +last.date - 7 * DAY);
-  const ret_7d = last && base ? ret(px(base)!, px(last)!) : null;
-  const wq = w.quotes.filter((q) => px(q) != null);
-  const first = wq[0], wl = wq.at(-1);
-  // require ~5 years of history, otherwise leave null
-  const ret_5y = first && wl && +wl.date - +first.date > 4.8 * 365.25 * DAY ? ret(px(first)!, px(wl)!) : null;
-  // shorter windows from the same weekly series: last close vs the last bar on/before the cut-off
-  const since = (cut: number) => {
-    const b = [...wq].reverse().find((q) => +q.date <= cut);
-    return b && wl && +wl.date - +b.date > 0 ? ret(px(b)!, px(wl)!) : null;
-  };
-  const jan1 = new Date(new Date(now).getFullYear(), 0, 1).getTime();
-  return { ret_7d, ret_5y, ret_1m: since(now - 30 * DAY), ret_3m: since(now - 91 * DAY), ret_6m: since(now - 182 * DAY), ret_ytd: since(jan1) };
+  return computeReturns(d.quotes, w.quotes, now);
 }
 
 export async function fetchDetail(symbol: string) {

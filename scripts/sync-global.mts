@@ -5,6 +5,8 @@
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
 import { regionOf } from "../src/lib/regions";
+import { csv, fromHeader, toRows } from "./lib/parse.mjs";
+import { QUOTA } from "./lib/markets.mjs";
 import { capToUsd, loadFx } from "./lib/fx.mjs";
 import { num, withRetry, yf } from "./lib/yahoo-detail.mjs";
 
@@ -19,14 +21,6 @@ const MAX = arg("max", Number(process.env.UNIVERSE_MAX ?? 20000));
 const MIN_CAP_USD = 30e6;
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 Chrome/126 Safari/537.36";
 
-// Country -> target share of the room (relative weights, scaled to fit). Roughly each market's weight among
-// global companies above ~$100m, nudged so smaller markets still get representation.
-const QUOTA: Record<string, number> = {
-  Japan: 2400, China: 2400, India: 1800, "South Korea": 1100, "Hong Kong": 1000, Taiwan: 1000, "United Kingdom": 900,
-  Canada: 800, Australia: 700, Germany: 450, France: 400, Switzerland: 220, Italy: 250, Netherlands: 110,
-  Norway: 180, Belgium: 90, Ireland: 40, Portugal: 35, Singapore: 220,
-};
-
 interface Candidate { symbol: string; name: string; country: string }
 
 // ---------- download helpers ----------
@@ -37,43 +31,10 @@ async function get(u: string, headers: Record<string, string> = {}) {
 }
 const text = async (u: string, h?: Record<string, string>) => (await get(u, h)).text();
 const json = async <T,>(u: string, h?: Record<string, string>) => (await get(u, h)).json() as Promise<T>;
-const fixRange = (ws: XLSX.WorkSheet) => {
-  // some exchange files (HKEX) declare a too-small sheet dimension; recompute it from the cells present
-  let maxR = 0, maxC = 0;
-  for (const k of Object.keys(ws)) {
-    if (k[0] === "!") continue;
-    const { r, c } = XLSX.utils.decode_cell(k);
-    if (r > maxR) maxR = r;
-    if (c > maxC) maxC = c;
-  }
-  ws["!ref"] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: maxR, c: maxC } });
-  return ws;
-};
-const toRows = (ws: XLSX.WorkSheet) => XLSX.utils.sheet_to_json<unknown[]>(fixRange(ws), { header: 1, blankrows: false, raw: false });
 const sheetRows = async (u: string, sheet?: string) => {
   const wb = XLSX.read(new Uint8Array(await (await get(u)).arrayBuffer()), { type: "array" });
   return toRows(wb.Sheets[sheet ?? wb.SheetNames[0]]);
 };
-/** Rows after the header row (found by its first cell), as objects keyed by header names. */
-const fromHeader = (rows: unknown[][], firstCell: string) => {
-  const h = rows.findIndex((r) => String(r[0] ?? "").trim() === firstCell);
-  if (h < 0) throw new Error(`header "${firstCell}" not found`);
-  const cols = Array.from(rows[h], (c) => String(c ?? "").trim()); // rows can be sparse arrays
-  return rows.slice(h + 1).map((r) => Object.fromEntries(cols.map((c, i) => [c, String(r[i] ?? "").trim()])));
-};
-const csv = (body: string, sep = ",") =>
-  body.split(/\r?\n/).filter(Boolean).map((l) => {
-    const out: string[] = [];
-    let cur = "", q = false;
-    for (const ch of l) {
-      if (ch === '"') q = !q;
-      else if (ch === sep && !q) { out.push(cur); cur = ""; }
-      else cur += ch;
-    }
-    out.push(cur);
-    return out.map((s) => s.replace(/^﻿/, "").trim());
-  });
-
 // ---------- one function per exchange; each returns Yahoo-style symbols ----------
 const SOURCES: Record<string, () => Promise<Candidate[]>> = {
   async "NSE India"() {
