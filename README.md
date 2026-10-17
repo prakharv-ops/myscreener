@@ -13,6 +13,9 @@ npm run dev        # works immediately on mock data
 3. Also run `0002_alerts.sql`, `0003_snowflake_v2.sql` and `0004_universe.sql` from `supabase/migrations/` (or `supabase/setup.sql` for all three on a fresh project).
 4. Edit `scripts/tickers.txt` (Yahoo symbols), then `npm run ingest`.
 
+## Global universe (20,000 stocks)
+`npm run global` adds the largest companies per country from free official exchange listings (NSE India, JPX, SSE + SZSE, HKEX, KRX, TWSE + TPEx, LSE*, TSX + TSXV, ASX, Euronext, Deutsche Börse, SIX, SGX), validates each with Yahoo quotes and fills the universe up to 20,000 (`-- --max N`) using per-country quotas. *LSE no longer publishes its list at a stable URL; the Jan 2021 file is used, so UK listings since then are missing. `npm run dedupe` hides duplicate listings of the same company (share classes, ADRs, Canadian CDRs), keeping the home-market listing.
+
 ## Full US universe
 `npm run universe` loads every US common stock/ADR (~5,900; Nasdaq, NYSE, NYSE American) from Nasdaq Trader's free official symbol files. `npm run quotes` refreshes price/market cap/PE/etc. for all rows in a few seconds (Yahoo batch quotes). `npm run enrich` (time-boxed, default 30 min; `-- --minutes 60`) adds full details + Snowflake scores, biggest companies first, so the whole universe fills in over a few nights; stale rows are then refreshed oldest-first. The screener hides not-yet-analysed stocks unless you untick "Fully analysed stocks only". `npm run refresh` = universe + quotes + enrich + rescore + alerts (what the daily job runs).
 
