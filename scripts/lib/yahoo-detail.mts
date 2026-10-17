@@ -2,7 +2,7 @@
 import YahooFinance from "yahoo-finance2";
 import { regionOf } from "../../src/lib/regions";
 import { scoreAll } from "../../src/lib/scoring";
-import { loadFx, toUsd } from "./fx.mjs";
+import { capToUsd, loadFx } from "./fx.mjs";
 
 // yahoo-finance2 console.error()s the full request URL on every non-2xx response (no option to disable).
 // Expected misses (delisted symbols, rate limits) would otherwise bloat the logs by megabytes per run.
@@ -90,7 +90,7 @@ export async function fetchDetail(symbol: string) {
   });
   const price = s.price, sd = s.summaryDetail, ks = s.defaultKeyStatistics, fd = s.financialData, ap = s.assetProfile;
   await loadFx([price?.currency]);
-  const fx = toUsd(price?.currency);
+  const fx = capToUsd(price?.currency);
   const mcap = num(price?.marketCap);
   const px = num(price?.regularMarketPrice);
   const high = num(sd?.fiftyTwoWeekHigh);

@@ -16,7 +16,7 @@ const arg = (name: string, def: number) => {
 };
 const MINUTES = arg("minutes", Number(process.env.ENRICH_MINUTES ?? 30));
 const LIMIT = arg("limit", 100000);
-const STALE_DAYS = Number(process.env.ENRICH_STALE_DAYS ?? 3);
+const STALE_DAYS = Number(process.env.ENRICH_STALE_DAYS ?? 7);
 const deadline = Date.now() + MINUTES * 60_000;
 
 // PostgREST returns at most 1000 rows per request, so page through

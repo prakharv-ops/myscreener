@@ -23,3 +23,10 @@ export function toUsd(currency: string | null | undefined): number | null {
   const r = cache.get(base);
   return r == null ? null : r * factor;
 }
+
+/** For market caps: Yahoo reports caps in the major unit even when the price is in pence/cents (GBp, ZAc, ILA). */
+export function capToUsd(currency: string | null | undefined): number | null {
+  if (!currency) return null;
+  const r = cache.get(MINOR[currency]?.[0] ?? currency);
+  return r ?? null;
+}
