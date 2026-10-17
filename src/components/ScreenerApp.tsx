@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { MAX_TOTAL, METRICS, SNOWFLAKE_AXES, metricByKey } from "@/lib/metrics";
+import { CAP_SIZES, MAX_TOTAL, METRIC_GROUPS, METRICS, SNOWFLAKE_AXES, metricByKey } from "@/lib/metrics";
 import { useLive } from "@/lib/use-live";
 import type { ScreenAlert } from "@/lib/alerts";
 import type { SavedScreen } from "@/lib/saved";
 import type { ScreenResult, StockRow } from "@/lib/screen";
+import { Chips, SearchMulti, type Facet } from "./filters";
 import { MiniSnowflake } from "./MiniSnowflake";
 import { SnowflakeFilter } from "./SnowflakeFilter";
 
@@ -25,46 +26,60 @@ function Th({ k, sort, onSort, children }: { k: string; sort: { key: string; dir
   );
 }
 
-function Multi({ label, options, value, onChange }: { label: string; options: string[]; value: string[]; onChange: (v: string[]) => void }) {
-  return (
-    <div className="rounded-lg border border-white/10 p-3">
-      <div className="mb-2 text-xs font-semibold uppercase opacity-60">{label}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => {
-          const on = value.includes(o);
-          return (
-            <button
-              key={o}
-              onClick={() => onChange(on ? value.filter((x) => x !== o) : [...value, o])}
-              className={`rounded-full border px-2.5 py-1 text-xs ${on ? "border-amber-400 bg-amber-400/20" : "border-white/15 opacity-70"}`}
-            >
-              {o}
-            </button>
-          );
-        })}
-      </div>
-      {!value.length && <div className="mt-2 text-xs opacity-50">All</div>}
-    </div>
-  );
+// Table "views": the company/price/score columns are fixed, the middle columns change per view.
+const VIEWS: { label: string; cols: string[] }[] = [
+  { label: "Overview", cols: ["ret_7d", "ret_1y", "market_cap_usd", "pe", "revenue_growth", "div_yield"] },
+  { label: "Valuation", cols: ["pe", "forward_pe", "peg", "pb", "ps", "ev_ebitda", "fcf_yield"] },
+  { label: "Growth", cols: ["revenue_growth", "earnings_growth_est_1y", "earnings_growth_past_1y", "earnings_growth_past_5y", "eps"] },
+  { label: "Profitability", cols: ["roe", "roa", "gross_margin", "operating_margin", "profit_margin"] },
+  { label: "Health & dividends", cols: ["debt_to_equity", "current_ratio", "beta", "div_yield", "payout_ratio"] },
+  { label: "Performance", cols: ["ret_7d", "ret_1m", "ret_3m", "ret_ytd", "ret_1y", "ret_5y", "pct_from_high"] },
+  { label: "Ownership", cols: ["analyst_count", "analyst_rating", "insider_pct", "institution_pct", "short_pct", "avg_volume"] },
+  { label: "Snowflake", cols: SNOWFLAKE_AXES.map((a) => a.col) },
+];
+const SHORT: Record<string, string> = {
+  ret_7d: "7D", ret_1m: "1M", ret_3m: "3M", ret_ytd: "YTD", ret_1y: "1Y", ret_5y: "5Y", pct_from_high: "vs 52W High",
+  market_cap_usd: "Mkt Cap $", pe: "PE", forward_pe: "Fwd PE", peg: "PEG", pb: "P/B", ps: "P/S", ev_ebitda: "EV/EBITDA", fcf_yield: "FCF Yld",
+  revenue_growth: "Rev Gr.", earnings_growth_est_1y: "EPS Gr. Est", earnings_growth_past_1y: "EPS Gr. 1Y", earnings_growth_past_5y: "EPS Gr. 5Y", eps: "EPS",
+  roe: "ROE", roa: "ROA", gross_margin: "Gross M.", operating_margin: "Op. M.", profit_margin: "Net M.",
+  debt_to_equity: "D/E", current_ratio: "Curr. Ratio", beta: "Beta", div_yield: "Div Yld", payout_ratio: "Payout",
+  analyst_count: "Analysts", analyst_rating: "Rating", insider_pct: "Insiders", institution_pct: "Institutions", short_pct: "Short %", avg_volume: "Avg Vol",
+  ...Object.fromEntries(SNOWFLAKE_AXES.map((a) => [a.col, a.label])),
+};
+const SIGNED = new Set(["ret_7d", "ret_1m", "ret_3m", "ret_ytd", "ret_1y", "ret_5y", "pct_from_high", "revenue_growth", "earnings_growth_est_1y", "earnings_growth_past_1y", "earnings_growth_past_5y"]);
+
+function cell(key: string, v: number | null | undefined) {
+  if (v == null) return <span className="opacity-40">–</span>;
+  if (key.startsWith("score_")) return <span className={v >= 7 ? "text-emerald-400" : v < 4 ? "text-red-400" : ""}>{v.toFixed(1)}</span>;
+  const m = metricByKey(key);
+  if (key === "market_cap_usd") return `$${fmtCap(v)}`;
+  if (m?.fmt === "usd") return fmtCap(v);
+  if (key === "avg_volume") return fmtCap(v).replace("t", "T");
+  if (m?.fmt === "pct") return <span className={SIGNED.has(key) ? (v < 0 ? "text-red-400" : "text-emerald-400") : ""}>{pct(v)}</span>;
+  return fmtNum(v, m?.fmt === "ratio" ? 2 : 1);
 }
 
 export function ScreenerApp() {
+  const [regions, setRegions] = useState<string[]>([]);
   const [markets, setMarkets] = useState<string[]>([]);
+  const [sectors, setSectors] = useState<string[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
+  const [capSizes, setCapSizes] = useState<string[]>([]);
+  const [view, setView] = useState(0);
   const [snowflake, setSnowflake] = useState<Record<string, number>>({});
   const [metrics, setMetrics] = useState<MetricFilter[]>([]);
   const [keywords, setKeywords] = useState("");
   const [detailedOnly, setDetailedOnly] = useState(true);
   const [coverage, setCoverage] = useState<{ total: number; analysed: number } | null>(null);
-  const [sort, setSort] = useState({ key: "market_cap", dir: "desc" as "asc" | "desc" });
+  const [sort, setSort] = useState({ key: "market_cap_usd", dir: "desc" as "asc" | "desc" });
   const [page, setPage] = useState(0);
   const [res, setRes] = useState<ScreenResult | null>(null);
   const [loadedKey, setLoadedKey] = useState("");
-  const [facets, setFacets] = useState<{ markets: string[]; industries: string[] }>({ markets: [], industries: [] });
+  const [facets, setFacets] = useState<Record<"regions" | "markets" | "sectors" | "industries", Facet[]>>({ regions: [], markets: [], sectors: [], industries: [] });
   useEffect(() => {
     fetch("/api/facets").then((r) => r.json()).then((j) => {
       if (j.total) setCoverage({ total: j.total, analysed: j.analysed });
-      if (j.markets) setFacets({ markets: j.markets.map((x: { name: string }) => x.name), industries: j.industries.map((x: { name: string }) => x.name) });
+      if (j.markets) setFacets({ regions: j.regions ?? [], markets: j.markets, sectors: j.sectors ?? [], industries: j.industries ?? [] });
     }).catch(() => {});
   }, []);
   const [err, setErr] = useState<string | null>(null);
@@ -110,7 +125,8 @@ export function ScreenerApp() {
     setActiveId(id);
     const s = saved.find((x) => x.id === id)?.spec;
     if (!s) return;
-    setMarkets(s.markets); setIndustries(s.industries); setSnowflake(s.snowflake);
+    setRegions(s.regions ?? []); setMarkets(s.markets); setSectors(s.sectors ?? []); setIndustries(s.industries ?? []);
+    setCapSizes(s.capSizes ?? []); setSnowflake(s.snowflake);
     setMetrics(s.metrics); setKeywords(s.keywords); setDetailedOnly(s.detailedOnly ?? true); setSort(s.sort); setPage(0);
   };
   const saveCurrent = async () => {
@@ -130,12 +146,13 @@ export function ScreenerApp() {
     loadSaved();
   };
   const clearAll = () => {
-    setActiveId(""); setMarkets([]); setIndustries([]); setSnowflake({}); setMetrics([]);
-    setKeywords(""); setDetailedOnly(true); setSort({ key: "market_cap", dir: "desc" }); setPage(0);
+    setActiveId(""); setRegions([]); setMarkets([]); setSectors([]); setIndustries([]); setCapSizes([]);
+    setSnowflake({}); setMetrics([]); setKeywords(""); setDetailedOnly(true);
+    setSort({ key: "market_cap_usd", dir: "desc" }); setPage(0);
   };
 
   const spec = {
-    markets, industries, snowflake, keywords, detailedOnly, sort, page, pageSize: PAGE,
+    regions, markets, sectors, industries, capSizes, snowflake, keywords, detailedOnly, sort, page, pageSize: PAGE,
     metrics: metrics.filter((m) => m.min !== undefined || m.max !== undefined),
   };
   const specKey = JSON.stringify(spec);
@@ -157,6 +174,16 @@ export function ScreenerApp() {
     }, 250);
     return () => { clearTimeout(t); ctl.abort(); };
   }, [specKey]);
+
+  const exportCsv = async () => {
+    const r = await fetch("/api/export", { method: "POST", body: specKey });
+    if (!r.ok) return setErr(`Export failed (${r.status})`);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(await r.blob());
+    a.download = `screen-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
 
   // any filter change resets paging
   const reset = <T,>(set: (v: T) => void) => (v: T) => { setPage(0); set(v); };
@@ -222,9 +249,12 @@ export function ScreenerApp() {
 
         <div className="space-y-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <Multi label="Markets" options={facets.markets} value={markets} onChange={reset(setMarkets)} />
-            <Multi label="Industries" options={facets.industries} value={industries} onChange={reset(setIndustries)} />
+            <Chips label="Regions" options={facets.regions.map((f) => ({ key: f.name, label: f.name, count: f.count }))} value={regions} onChange={reset(setRegions)} />
+            <Chips label="Company size (USD)" options={CAP_SIZES.map((c) => ({ key: c.key, label: c.label }))} value={capSizes} onChange={reset(setCapSizes)} />
+            <SearchMulti label={`Countries (${facets.markets.length})`} options={facets.markets} value={markets} onChange={reset(setMarkets)} placeholder="Type a country…" />
+            <SearchMulti label={`Industries (${facets.industries.length})`} options={facets.industries} value={industries} onChange={reset(setIndustries)} placeholder="Type an industry, e.g. semiconductors…" />
           </div>
+          <Chips label="Sectors" options={facets.sectors.map((f) => ({ key: f.name, label: f.name, count: f.count }))} value={sectors} onChange={reset(setSectors)} />
           <input
             value={keywords}
             onChange={(e) => { setPage(0); setKeywords(e.target.value); }}
@@ -239,8 +269,12 @@ export function ScreenerApp() {
                 value=""
                 onChange={(e) => e.target.value && setMetrics([...metrics, { key: e.target.value }])}
               >
-                <option value="">+ Add metric filter</option>
-                {METRICS.filter((m) => !metrics.some((x) => x.key === m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                <option value="">+ Add metric filter ({METRICS.length})</option>
+                {METRIC_GROUPS.map((g) => (
+                  <optgroup key={g} label={g}>
+                    {METRICS.filter((m) => m.group === g && !metrics.some((x) => x.key === m.key)).map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </div>
             {metrics.map((m, i) => (
@@ -265,9 +299,16 @@ export function ScreenerApp() {
         <span className={loading ? "opacity-50" : ""}>{res ? `${res.count.toLocaleString()} results` : "Loading…"}{loading && res ? " · updating…" : ""}</span>
         {err && <span className="text-red-400">{err}</span>}
         <div className="flex gap-2">
+          <button onClick={exportCsv} disabled={!res?.count} className="rounded border border-white/15 px-3 py-1 disabled:opacity-30" title="Download every matching stock (up to 5,000) as CSV">Export CSV</button>
           <button disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded border border-white/15 px-3 py-1 disabled:opacity-30">Prev</button>
           <button disabled={!res || (page + 1) * PAGE >= res.count} onClick={() => setPage(page + 1)} className="rounded border border-white/15 px-3 py-1 disabled:opacity-30">Next</button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {VIEWS.map((v, i) => (
+          <button key={v.label} onClick={() => setView(i)} className={`rounded-full px-3 py-1 text-xs ${view === i ? "bg-white/15" : "opacity-60 hover:opacity-100"}`}>{v.label}</button>
+        ))}
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-white/10">
@@ -276,12 +317,7 @@ export function ScreenerApp() {
             <tr>
               <Th sort={sort} onSort={toggleSort} k="name"><span className="float-left">Company</span></Th>
               <Th sort={sort} onSort={toggleSort} k="price">Price</Th>
-              <Th sort={sort} onSort={toggleSort} k="ret_7d">7D</Th>
-              <Th sort={sort} onSort={toggleSort} k="ret_1y">1Y</Th>
-              <Th sort={sort} onSort={toggleSort} k="market_cap">Mkt Cap</Th>
-              <Th sort={sort} onSort={toggleSort} k="pe">PE</Th>
-              <Th sort={sort} onSort={toggleSort} k="earnings_growth_est_1y">Growth Est.</Th>
-              <Th sort={sort} onSort={toggleSort} k="div_yield">Div Yield</Th>
+              {VIEWS[view].cols.map((c) => <Th key={c} sort={sort} onSort={toggleSort} k={c}>{SHORT[c] ?? c}</Th>)}
               <Th sort={sort} onSort={toggleSort} k="score_total">Score</Th>
             </tr>
           </thead>
@@ -293,7 +329,7 @@ export function ScreenerApp() {
                     <MiniSnowflake row={r} />
                     <div>
                       <div className="font-medium">{r.name}</div>
-                      <div className="text-xs opacity-50">{r.symbol} · {r.exchange} · {r.country}</div>
+                      <div className="text-xs opacity-50">{r.symbol} · {r.exchange} · {r.country}{r.industry ? ` · ${r.industry}` : ""}</div>
                     </div>
                   </div>
                 </td>
@@ -303,12 +339,9 @@ export function ScreenerApp() {
                     {fmtNum(live[r.symbol]?.price ?? r.price, 2)}
                   </span>
                 </td>
-                <td className={`px-3 py-2 text-right ${(r.ret_7d ?? 0) < 0 ? "text-red-400" : "text-emerald-400"}`}>{pct(r.ret_7d)}</td>
-                <td className={`px-3 py-2 text-right ${(r.ret_1y ?? 0) < 0 ? "text-red-400" : "text-emerald-400"}`}>{pct(r.ret_1y)}</td>
-                <td className="px-3 py-2 text-right">{fmtCap(r.market_cap)}</td>
-                <td className="px-3 py-2 text-right">{fmtNum(r.pe)}</td>
-                <td className="px-3 py-2 text-right">{pct(r.earnings_growth_est_1y)}</td>
-                <td className="px-3 py-2 text-right">{pct(r.div_yield)}</td>
+                {VIEWS[view].cols.map((c) => (
+                  <td key={c} className="px-3 py-2 text-right tabular-nums">{cell(c, (r as unknown as Record<string, number | null>)[c])}</td>
+                ))}
                 <td className="px-3 py-2 text-right">{r.score_total ?? "–"}/{MAX_TOTAL}</td>
               </tr>
             ))}

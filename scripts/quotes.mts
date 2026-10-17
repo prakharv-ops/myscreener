@@ -2,6 +2,7 @@
 // Fast pass over EVERY row in `stocks`: Yahoo's batch quote endpoint (100 symbols/call) refreshes
 // price, market cap, PE, P/B, EPS, dividend yield, 1Y return and analyst rating.
 import { createClient } from "@supabase/supabase-js";
+import { loadFx, toUsd } from "./lib/fx.mjs";
 import { yf, num } from "./lib/yahoo-detail.mjs";
 
 const url = process.env.SUPABASE_URL;
@@ -33,9 +34,11 @@ async function worker() {
   for (let c = chunks.shift(); c; c = chunks.shift()) {
     try {
       const res = (await yf.quote(c, {}, { validateResult: false })) as unknown as Q[];
+      await loadFx(res.map((q) => q.currency));
       const rows = res
         .filter((q) => num(q.regularMarketPrice) != null)
         .map((q) => ({
+          market_cap_usd: num(q.marketCap) != null && toUsd(q.currency) != null ? Math.round(q.marketCap! * toUsd(q.currency)!) : null,
           symbol: q.symbol,
           name: q.longName ?? q.shortName ?? q.symbol,
           exchange: q.fullExchangeName ?? null,

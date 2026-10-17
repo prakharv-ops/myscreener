@@ -1,3 +1,4 @@
+import { regionOf } from "./regions";
 import { scoreAll } from "./scoring";
 import type { StockRow } from "./screen";
 
@@ -32,6 +33,7 @@ export function mockUniverse(n = 400): StockRow[] {
       exchange, country, sector, industry: sector, currency,
       price: +(5 + r() * 300).toFixed(2),
       market_cap: Math.round(1e8 * Math.pow(10, r() * 4.5)),
+      region: regionOf(country),
       pe: +(5 + r() * 50).toFixed(1),
       pb: +(0.5 + r() * 10).toFixed(1),
       peg: +(0.3 + r() * 3).toFixed(1),
@@ -54,6 +56,7 @@ export function mockUniverse(n = 400): StockRow[] {
       description: `${sector} company listed in ${country}`,
       is_primary_listing: true,
     };
-    return { ...row, ...scoreAll(row as StockRow) } as StockRow;
+    const full = { ...row, market_cap_usd: row.market_cap } as unknown as StockRow; // mock: pretend local = USD
+    return { ...full, ...scoreAll(full) } as StockRow;
   });
 }

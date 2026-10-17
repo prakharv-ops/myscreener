@@ -1,6 +1,16 @@
 // Shared Yahoo "full details" fetch + scoring used by ingest.mts and enrich.mts.
 import YahooFinance from "yahoo-finance2";
+import { regionOf } from "../../src/lib/regions";
 import { scoreAll } from "../../src/lib/scoring";
+import { loadFx, toUsd } from "./fx.mjs";
+
+// yahoo-finance2 console.error()s the full request URL on every non-2xx response (no option to disable).
+// Expected misses (delisted symbols, rate limits) would otherwise bloat the logs by megabytes per run.
+const origError = console.error;
+console.error = (...args: unknown[]) => {
+  if (args.length === 1 && typeof args[0] === "string" && args[0].startsWith("https://query")) return;
+  origError(...args);
+};
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {}, dir() {} }; // the library dumps full request URLs on errors
 export const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"], logger: quiet });
@@ -60,19 +70,32 @@ async function returns(symbol: string) {
   const first = wq[0], wl = wq.at(-1);
   // require ~5 years of history, otherwise leave null
   const ret_5y = first && wl && +wl.date - +first.date > 4.8 * 365.25 * DAY ? ret(px(first)!, px(wl)!) : null;
-  return { ret_7d, ret_5y };
+  // shorter windows from the same weekly series: last close vs the last bar on/before the cut-off
+  const since = (cut: number) => {
+    const b = [...wq].reverse().find((q) => +q.date <= cut);
+    return b && wl && +wl.date - +b.date > 0 ? ret(px(b)!, px(wl)!) : null;
+  };
+  const jan1 = new Date(new Date(now).getFullYear(), 0, 1).getTime();
+  return { ret_7d, ret_5y, ret_1m: since(now - 30 * DAY), ret_3m: since(now - 91 * DAY), ret_6m: since(now - 182 * DAY), ret_ytd: since(jan1) };
 }
 
 export async function fetchDetail(symbol: string) {
   const [est, past5, rets] = await Promise.all([
     earningsEstimate(symbol).catch(() => null),
     pastEpsGrowth(symbol).catch(() => null),
-    returns(symbol).catch(() => ({ ret_7d: null, ret_5y: null })),
+    returns(symbol).catch(() => ({ ret_7d: null, ret_5y: null, ret_1m: null, ret_3m: null, ret_6m: null, ret_ytd: null })),
   ]);
   const s = await yf.quoteSummary(symbol, {
     modules: ["price", "summaryDetail", "defaultKeyStatistics", "financialData", "assetProfile"],
   });
   const price = s.price, sd = s.summaryDetail, ks = s.defaultKeyStatistics, fd = s.financialData, ap = s.assetProfile;
+  await loadFx([price?.currency]);
+  const fx = toUsd(price?.currency);
+  const mcap = num(price?.marketCap);
+  const px = num(price?.regularMarketPrice);
+  const high = num(sd?.fiftyTwoWeekHigh);
+  // FCF and market cap must be in the same currency (ADRs often report in another one)
+  const fcf = fd?.financialCurrency && fd.financialCurrency === price?.currency ? num(fd?.freeCashflow) : null;
   const row = {
     symbol,
     name: price?.longName ?? price?.shortName ?? symbol,
@@ -104,6 +127,27 @@ export async function fetchDetail(symbol: string) {
     ret_7d: rets.ret_7d,
     ret_1y: pctOf(ks?.["52WeekChange"]),
     ret_5y: rets.ret_5y,
+    ret_1m: rets.ret_1m,
+    ret_3m: rets.ret_3m,
+    ret_6m: rets.ret_6m,
+    ret_ytd: rets.ret_ytd,
+    region: regionOf(ap?.country),
+    market_cap_usd: mcap != null && fx != null ? Math.round(mcap * fx) : null,
+    forward_pe: num(sd?.forwardPE ?? ks?.forwardPE),
+    ps: num(sd?.priceToSalesTrailing12Months),
+    ev_ebitda: num(ks?.enterpriseToEbitda),
+    fcf_yield: fcf != null && mcap ? +((fcf / mcap) * 100).toFixed(2) : null,
+    revenue_growth: pctOf(fd?.revenueGrowth),
+    gross_margin: pctOf(fd?.grossMargins),
+    operating_margin: pctOf(fd?.operatingMargins),
+    current_ratio: num(fd?.currentRatio),
+    payout_ratio: pctOf(sd?.payoutRatio),
+    insider_pct: pctOf(ks?.heldPercentInsiders),
+    institution_pct: pctOf(ks?.heldPercentInstitutions),
+    short_pct: pctOf(ks?.shortPercentOfFloat),
+    avg_volume: num(sd?.averageVolume),
+    employees: num(ap?.fullTimeEmployees),
+    pct_from_high: px != null && high ? +((px / high - 1) * 100).toFixed(2) : null,
     is_primary_listing: true,
     has_details: true,
     detail_failures: 0,

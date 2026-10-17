@@ -58,7 +58,6 @@ create table if not exists saved_screens (
 alter table stocks enable row level security;
 alter table saved_screens enable row level security;
 -- No policies: only the service-role key (server only) can access.
-
 alter table saved_screens
   add column if not exists alerts_enabled boolean not null default false,
   add column if not exists last_matches text[],
@@ -76,7 +75,6 @@ create table if not exists screen_alerts (
 );
 create index if not exists screen_alerts_unseen_idx on screen_alerts (seen, created_at desc);
 alter table screen_alerts enable row level security;
-
 -- Snowflake v2: 8 axes, scores are smooth 0-10 values (one decimal) instead of 0-6 integers.
 alter table stocks
   add column if not exists profit_margin numeric,
@@ -95,7 +93,6 @@ alter table stocks
 
 -- old 0-6 scores are meaningless on the new scale; run `npm run rescore` (or `npm run ingest`) afterwards.
 update stocks set score_value = null, score_future = null, score_past = null, score_health = null, score_dividends = null, score_total = null;
-
 -- Full US universe: rows can exist with market data only; details are filled in gradually.
 alter table stocks
   add column if not exists has_details boolean not null default false,
@@ -106,3 +103,38 @@ alter table stocks
 update stocks set has_details = true, details_updated_at = coalesce(updated_at, now()) where sector is not null;
 
 create index if not exists stocks_has_details_idx on stocks (has_details, details_updated_at);
+-- Global universe (~20k stocks): more metrics, USD-normalised market cap, regions, facet view.
+alter table stocks
+  add column if not exists region text,
+  add column if not exists market_cap_usd numeric,
+  add column if not exists forward_pe numeric,
+  add column if not exists ps numeric,
+  add column if not exists ev_ebitda numeric,
+  add column if not exists fcf_yield numeric,
+  add column if not exists revenue_growth numeric,
+  add column if not exists gross_margin numeric,
+  add column if not exists operating_margin numeric,
+  add column if not exists current_ratio numeric,
+  add column if not exists payout_ratio numeric,
+  add column if not exists insider_pct numeric,
+  add column if not exists institution_pct numeric,
+  add column if not exists short_pct numeric,
+  add column if not exists avg_volume numeric,
+  add column if not exists employees int,
+  add column if not exists pct_from_high numeric,
+  add column if not exists ret_1m numeric,
+  add column if not exists ret_3m numeric,
+  add column if not exists ret_6m numeric,
+  add column if not exists ret_ytd numeric;
+
+create index if not exists stocks_mcap_usd_idx on stocks (market_cap_usd desc nulls last);
+create index if not exists stocks_total_idx on stocks (score_total desc nulls last);
+create index if not exists stocks_region_idx on stocks (region);
+create index if not exists stocks_industry_idx on stocks (industry);
+
+-- filter chips: one cheap query instead of paging through every row
+create or replace view stock_facets as
+  select 'region'::text as kind, region as name, count(*)::int as n from stocks where has_details and region is not null group by region
+  union all select 'country', country, count(*)::int from stocks where has_details and country is not null group by country
+  union all select 'sector', sector, count(*)::int from stocks where has_details and sector is not null group by sector
+  union all select 'industry', industry, count(*)::int from stocks where has_details and industry is not null group by industry;

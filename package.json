@@ -9,11 +9,12 @@
     "lint": "eslint",
     "ingest": "tsx --env-file=.env.local scripts/ingest.mts",
     "alerts": "tsx --env-file-if-exists=.env.local scripts/run-alerts.mts",
-    "refresh": "npm run universe && npm run quotes && npm run enrich && npm run rescore && npm run alerts",
+    "refresh": "npm run universe && npm run global && npm run quotes && npm run enrich -- --minutes 60 && npm run rescore && npm run alerts",
     "rescore": "tsx --env-file-if-exists=.env.local scripts/rescore.mts",
     "universe": "tsx --env-file-if-exists=.env.local scripts/sync-universe.mts",
     "quotes": "tsx --env-file-if-exists=.env.local scripts/quotes.mts",
-    "enrich": "tsx --env-file-if-exists=.env.local scripts/enrich.mts"
+    "enrich": "tsx --env-file-if-exists=.env.local scripts/enrich.mts",
+    "global": "tsx --env-file-if-exists=.env.local scripts/sync-global.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.3",

@@ -4,8 +4,11 @@ import { METRICS, SNOWFLAKE_AXES, SORTABLE } from "./metrics";
 const metricKeys = METRICS.map((m) => m.key);
 
 export const ScreenSpec = z.object({
-  markets: z.array(z.string()).default([]), // ISO country names/codes stored in `country`
-  industries: z.array(z.string()).default([]), // sectors
+  markets: z.array(z.string()).default([]), // countries (as stored in `country`)
+  regions: z.array(z.string()).default([]),
+  sectors: z.array(z.string()).default([]),
+  capSizes: z.array(z.enum(["mega", "large", "mid", "small", "micro"])).default([]), // by USD market cap
+  industries: z.array(z.string()).default([]), // Yahoo industries (finer than sectors)
   snowflake: z.record(z.string(), z.number().min(0).max(10)).default({}), // axis -> min score
   metrics: z
     .array(
@@ -58,6 +61,27 @@ export interface StockRow {
   analyst_count: number | null;
   profit_margin: number | null;
   analyst_rating: number | null;
+  region: string | null;
+  market_cap_usd: number | null;
+  forward_pe: number | null;
+  ps: number | null;
+  ev_ebitda: number | null;
+  fcf_yield: number | null;
+  revenue_growth: number | null;
+  gross_margin: number | null;
+  operating_margin: number | null;
+  current_ratio: number | null;
+  payout_ratio: number | null;
+  insider_pct: number | null;
+  institution_pct: number | null;
+  short_pct: number | null;
+  avg_volume: number | null;
+  employees: number | null;
+  pct_from_high: number | null;
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_6m: number | null;
+  ret_ytd: number | null;
   ret_7d: number | null;
   ret_1y: number | null;
   ret_5y: number | null;
